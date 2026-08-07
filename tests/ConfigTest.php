@@ -44,7 +44,11 @@ final class ConfigTest extends TestCase
 
     public function testDefaultsMatchXdebug3Conventions(): void
     {
-        $config = Config::fromEnvironment();
+        // Muted readers: the built-in defaults must not depend on the host php.ini,
+        // where an ambient Xdebug config (CI images ship xdebug.mode=off) leaks in
+        // through get_cfg_var()
+        $mute   = static fn(string $name): false => false;
+        $config = (new Config\ConfigResolver(new Config\XdebugCompat($mute, $mute)))->resolve();
         $this->assertSame('127.0.0.1', $config->clientHost);
         $this->assertSame(9003, $config->clientPort);
         $this->assertSame('zdebug', $config->ideKey);

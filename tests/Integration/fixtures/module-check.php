@@ -15,8 +15,10 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 3) . '/vendor/autoload.php';
 
-// A closed port so the debugger arms (registers the module) but degrades to undebugged
-ZDebug\Debugger::attach(['client_port' => 1, 'connect_timeout_ms' => 50]);
+// A closed port so the debugger arms (registers the module) but degrades to undebugged.
+// Explicit mode: a host Xdebug config (e.g. xdebug.mode=off on CI images) must not
+// switch the debugger off through the compat fallback.
+ZDebug\Debugger::attach(['client_port' => 1, 'connect_timeout_ms' => 50, 'mode' => 'debug']);
 
 echo 'extension_loaded=' . (extension_loaded('zdebug') ? 'yes' : 'no') . "\n";
 echo 'in_list=' . (in_array('zdebug', get_loaded_extensions(), true) ? 'yes' : 'no') . "\n";
