@@ -6,8 +6,8 @@
 
 **zdebug** is an Xdebug-compatible step debugger with **no C extension**. Your IDE attaches over DBGp — Xdebug's own protocol — while pure PHP code drives the Zend VM through FFI, courtesy of [z-engine](https://github.com/lisachenko/z-engine). Set breakpoints, step through code, and inspect the stack and variables in PhpStorm or VS Code, with nothing compiled and nothing installed but Composer packages.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/lisachenko/zdebug/ci.yml?branch=8.4-dev&label=CI)](https://github.com/lisachenko/zdebug/actions/workflows/ci.yml)
-[![PHP Version](https://img.shields.io/badge/php-8.4-8892BF.svg)](https://php.net/)
+[![CI](https://img.shields.io/github/actions/workflow/status/lisachenko/zdebug/ci.yml?branch=main&label=CI)](https://github.com/lisachenko/zdebug/actions/workflows/ci.yml)
+[![PHP Version](https://img.shields.io/badge/php-8.4%20%7C%208.5-8892BF.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PHPStan](https://img.shields.io/badge/PHPStan-level%20max-brightgreen.svg)](https://phpstan.org/)
 [![Status](https://img.shields.io/badge/status-experimental%20PoC-orange.svg)](#status--roadmap)
@@ -46,7 +46,7 @@ The engine is debugging itself. z-engine compiles your code with `COMPILE_EXTEND
 ## Quick start
 
 ```bash
-composer require --dev lisachenko/zdebug:8.4.x-dev
+composer require --dev lisachenko/zdebug:dev-main
 ```
 
 Point PHP at the bootstrap so the debugger starts **before** your code compiles, and tell it where your IDE is listening:
@@ -148,7 +148,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 
 ## Requirements
 
-- PHP **~8.4**, **NTS**, **linux-x64** (z-engine ships definitions for that platform)
+- PHP **8.4 or 8.5** (supported in parallel), **NTS**, **linux-x64** (z-engine ships definitions for that platform); Composer resolves the matching z-engine line per minor
 - `ffi.enable=1` and **`opcache.jit=off`** (the JIT rewrites the executor internals the hook plugs into)
 - Your app's code must load **after** zdebug attaches — `auto_prepend_file` guarantees this
 
