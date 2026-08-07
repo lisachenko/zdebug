@@ -94,6 +94,18 @@ final class BreakpointRegistry
     }
 
     /**
+     * Whether any exception breakpoint is registered (fast global gate for the THROW hook)
+     *
+     * Deliberately ignores the enabled flag, exactly like hasLineBreakpoints(): this is the
+     * cheap "is it worth resolving the thrown value at all" check, and forException() below
+     * still filters disabled breakpoints out.
+     */
+    public function hasExceptionBreakpoints(): bool
+    {
+        return $this->exceptionBreakpoints !== [];
+    }
+
+    /**
      * Returns the enabled line breakpoints registered at a (file, line), if any
      *
      * @return list<Breakpoint>

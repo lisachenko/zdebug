@@ -74,13 +74,16 @@ final class DebugSession
     /**
      * Suspends the debuggee at $top: answers the pending continuation with a break, then
      * services commands until the next continuation. Blocks inside the opcode handler.
+     *
+     * $exception is set by the THROW hook only; it turns the continuation response into a
+     * first-chance exception break instead of the plain line/step one.
      */
-    public function enterBreak(ExecutionData $top): void
+    public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null): void
     {
         $this->status         = SessionStatus::Break;
         $this->suspendedStack = $this->stackCollector->collect($top);
 
-        $this->answerPendingContinuation();
+        $this->answerPendingContinuation($exception);
         $this->commandLoop(StackCollector::depthOf($top));
 
         // Borrowed frames are only valid while suspended; drop them on resume
@@ -189,7 +192,7 @@ final class DebugSession
         }
     }
 
-    private function answerPendingContinuation(): void
+    private function answerPendingContinuation(?ExceptionBreak $exception): void
     {
         if ($this->pendingContinuation === null) {
             return;
@@ -200,15 +203,18 @@ final class DebugSession
         $body     = '';
         $topFrame = $this->suspendedStack[0] ?? null;
         if ($topFrame !== null) {
-            $body = '<xdebug:message ' . ResponseBuilder::attributes([
-                'filename' => FileUri::fromPath($topFrame->file),
-                'lineno'   => (string) $topFrame->line,
-            ]) . '/>';
+            $body = ResponseBuilder::breakMessage(
+                FileUri::fromPath($topFrame->file),
+                $topFrame->line,
+                $exception?->className,
+                $exception !== null ? $exception->message : '',
+            );
         }
 
         $this->connection->send($this->xml->response($command, $transactionId, [
             'status' => SessionStatus::Break->value,
-            'reason' => 'ok',
+            // DBGp reserves "exception" for a break caused by a throw; everything else is "ok"
+            'reason' => $exception !== null ? 'exception' : 'ok',
         ], $body));
     }
 }

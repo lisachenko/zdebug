@@ -119,6 +119,79 @@ final class DbgpSessionTest extends TestCase
         $this->assertChildFinishedCleanly();
     }
 
+    public function testExceptionBreakpointFiresBeforeTheThrow(): void
+    {
+        $ide     = new FakeIde(timeoutSeconds: 10.0);
+        $appPath = realpath(__DIR__ . '/fixtures/throwing-app.php');
+        $this->assertIsString($appPath);
+
+        $this->spawnChild($ide->port(), entry: 'throwing-entry.php');
+        $ide->accept();
+
+        $init = $ide->receive();
+        $this->assertSame('init', $init->getName());
+
+        // 1. an exception breakpoint on DomainException only
+        $set = $this->command($ide, 'breakpoint_set -t exception -x DomainException');
+        $this->assertNotSame('', (string) $set['id']);
+        $this->assertSame('enabled', (string) $set['state']);
+
+        // 2. run -> the LengthException thrown first must NOT break; the DomainException must
+        $break = $this->command($ide, 'run');
+        $this->assertSame('break', (string) $break['status']);
+        $this->assertSame('exception', (string) $break['reason']);
+
+        $throwLine  = $this->lineOf($appPath, "throw new DomainException('matched throw');");
+        $message    = $this->breakMessage($break);
+        $attributes = $this->attributesOf($message);
+        $this->assertSame('DomainException', $attributes['exception'] ?? null);
+        $this->assertSame((string) $throwLine, $attributes['lineno'] ?? null);
+        $this->assertStringEndsWith('throwing-app.php', $attributes['filename'] ?? '');
+        $this->assertSame('matched throw', trim((string) $message));
+
+        // 3. the frame is suspended ON the throw statement, before the exception exists
+        $stack = $this->command($ide, 'stack_get');
+        $top   = $stack->stack[0];
+        $this->assertSame((string) $throwLine, (string) $top['lineno']);
+        $this->assertStringContainsString('raiseMatched', (string) $top['where']);
+        $this->assertStringEndsWith('throwing-app.php', (string) $top['filename']);
+
+        // 4. resuming lets the throw proceed: it is caught in the fixture and the script ends
+        $end = $this->command($ide, 'run');
+        $this->assertSame('stopping', (string) $end['status']);
+
+        $stop = $this->command($ide, 'stop');
+        $this->assertSame('stopped', (string) $stop['status']);
+
+        $ide->close();
+        $this->assertChildFinishedCleanly([
+            'UNMATCHED=unmatched throw',
+            'MATCHED=matched throw',
+            'THROWING APP DONE',
+        ]);
+    }
+
+    public function testNonMatchingExceptionClassDoesNotBreak(): void
+    {
+        $ide = new FakeIde(timeoutSeconds: 10.0);
+
+        $this->spawnChild($ide->port(), entry: 'throwing-entry.php');
+        $ide->accept();
+        $ide->receive();
+
+        // Neither thrown class is (or extends) InvalidArgumentException: nothing may suspend
+        $this->command($ide, 'breakpoint_set -t exception -x InvalidArgumentException');
+
+        $end = $this->command($ide, 'run');
+        $this->assertSame('stopping', (string) $end['status'], 'A non-matching class must not break');
+
+        $stop = $this->command($ide, 'stop');
+        $this->assertSame('stopped', (string) $stop['status']);
+
+        $ide->close();
+        $this->assertChildFinishedCleanly(['MATCHED=matched throw', 'THROWING APP DONE']);
+    }
+
     public function testRunsUndebuggedWhenIdeIsUnreachable(): void
     {
         // No FakeIde listening: the debuggee must degrade silently and finish normally
@@ -128,14 +201,14 @@ final class DbgpSessionTest extends TestCase
         $this->assertChildFinishedCleanly();
     }
 
-    private function spawnChild(int $port, int $connectTimeoutMs = 2000): void
+    private function spawnChild(int $port, int $connectTimeoutMs = 2000, string $entry = 'entry.php'): void
     {
         $command = [
             PHP_BINARY,
             '-d', 'ffi.enable=1',
             '-d', 'zend.assertions=1',
             '-d', 'opcache.jit=off',
-            __DIR__ . '/fixtures/entry.php',
+            __DIR__ . '/fixtures/' . $entry,
         ];
         $env = [
             'ZDEBUG_CLIENT_HOST'        => '127.0.0.1',
@@ -152,7 +225,10 @@ final class DbgpSessionTest extends TestCase
         $this->pipes   = $pipes;
     }
 
-    private function assertChildFinishedCleanly(): void
+    /**
+     * @param list<string> $expectedOutput Markers the debuggee must have printed
+     */
+    private function assertChildFinishedCleanly(array $expectedOutput = ['APP DONE', 'RESULT=35']): void
     {
         $stdout = $this->drain($this->pipes[1]);
         $stderr = $this->drain($this->pipes[2]);
@@ -162,8 +238,9 @@ final class DbgpSessionTest extends TestCase
 
         $report = "STDOUT:\n{$stdout}\nSTDERR:\n{$stderr}";
         $this->assertSame(0, $exit, "Child exited non-zero\n{$report}");
-        $this->assertStringContainsString('APP DONE', $stdout, $report);
-        $this->assertStringContainsString('RESULT=35', $stdout, $report);
+        foreach ($expectedOutput as $marker) {
+            $this->assertStringContainsString($marker, $stdout, $report);
+        }
         $this->assertStringNotContainsStringIgnoringCase('Fatal error', $stderr, $report);
     }
 
@@ -172,6 +249,37 @@ final class DbgpSessionTest extends TestCase
         $ide->send($command);
 
         return $ide->receive();
+    }
+
+    /**
+     * Returns the <xdebug:message> element an IDE reads to move its cursor on a break
+     */
+    private function breakMessage(\SimpleXMLElement $response): \SimpleXMLElement
+    {
+        $message = $response->children('https://xdebug.org/dbgp/xdebug')->message;
+        if (!$message instanceof \SimpleXMLElement) {
+            $this->fail('The break response carries no <xdebug:message> element');
+        }
+
+        return $message;
+    }
+
+    /**
+     * Reads the (non-namespaced) attributes of an element into a plain map
+     *
+     * SimpleXML scopes `$element['name']` to the namespace the element was reached
+     * through, so attributes of an `xdebug:`-prefixed element are only visible here.
+     *
+     * @return array<string, string>
+     */
+    private function attributesOf(\SimpleXMLElement $element): array
+    {
+        $attributes = [];
+        foreach ($element->attributes() ?? [] as $name => $value) {
+            $attributes[(string) $name] = (string) $value;
+        }
+
+        return $attributes;
     }
 
     /**

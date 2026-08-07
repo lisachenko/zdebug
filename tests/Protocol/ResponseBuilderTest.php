@@ -82,10 +82,66 @@ final class ResponseBuilderTest extends TestCase
         $this->assertSame('file:///a&b"c.php', $doc->getAttribute('filename'));
     }
 
+    public function testBreakMessageIsSelfClosingForALineBreak(): void
+    {
+        $body = ResponseBuilder::breakMessage('file:///app/a.php', 42);
+        $xml  = $this->builder->response('run', '7', ['status' => 'break', 'reason' => 'ok'], $body);
+        $doc  = $this->loadXml($xml);
+
+        $message = $this->breakMessageOf($doc);
+        $this->assertSame('file:///app/a.php', $message->getAttribute('filename'));
+        $this->assertSame('42', $message->getAttribute('lineno'));
+        $this->assertFalse($message->hasAttribute('exception'));
+        $this->assertSame('', $message->textContent);
+    }
+
+    public function testBreakMessageCarriesTheExceptionClassAndMessage(): void
+    {
+        $body = ResponseBuilder::breakMessage('file:///app/a.php', 12, \DomainException::class, 'seed out of range');
+        $xml  = $this->builder->response('run', '8', ['status' => 'break', 'reason' => 'exception'], $body);
+        $doc  = $this->loadXml($xml);
+
+        $this->assertSame('exception', $doc->getAttribute('reason'));
+        $message = $this->breakMessageOf($doc);
+        $this->assertSame('DomainException', $message->getAttribute('exception'));
+        $this->assertSame('12', $message->getAttribute('lineno'));
+        $this->assertSame('seed out of range', $message->textContent);
+    }
+
+    public function testBreakMessageWithAnEmptyExceptionMessageStaysSelfClosing(): void
+    {
+        $body = ResponseBuilder::breakMessage('file:///app/a.php', 12, \DomainException::class);
+        $xml  = $this->builder->response('run', '9', ['status' => 'break'], $body);
+
+        $message = $this->breakMessageOf($this->loadXml($xml));
+        $this->assertSame('DomainException', $message->getAttribute('exception'));
+        $this->assertSame('', $message->textContent);
+    }
+
+    public function testBreakMessageKeepsTheDocumentWellFormedForHostileText(): void
+    {
+        $body = ResponseBuilder::breakMessage('file:///a&b.php', 3, 'Vendor\\Bad<Class>', "]]> & <bang>\0");
+        $xml  = $this->builder->response('run', '10', ['status' => 'break'], $body);
+
+        // Well-formedness is what matters: loadXml() asserts it, NUL bytes and all
+        $message = $this->breakMessageOf($this->loadXml($xml));
+        $this->assertSame('Vendor\\Bad<Class>', $message->getAttribute('exception'));
+        $this->assertSame('file:///a&b.php', $message->getAttribute('filename'));
+        $this->assertSame(']]> & <bang>', $message->textContent);
+    }
+
     public function testPrologPrecedesEveryPacket(): void
     {
         $xml = $this->builder->response('status', '1');
         $this->assertStringStartsWith(ResponseBuilder::PROLOG, $xml);
+    }
+
+    private function breakMessageOf(\DOMElement $response): \DOMElement
+    {
+        $message = $response->getElementsByTagNameNS(ResponseBuilder::NS_XDEBUG, 'message')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $message);
+
+        return $message;
     }
 
     private function loadXml(string $xml): \DOMElement
