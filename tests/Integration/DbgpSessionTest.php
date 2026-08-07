@@ -134,6 +134,7 @@ final class DbgpSessionTest extends TestCase
             PHP_BINARY,
             '-d', 'ffi.enable=1',
             '-d', 'zend.assertions=1',
+            '-d', 'opcache.enable_cli=0',
             '-d', 'opcache.jit=off',
             __DIR__ . '/fixtures/entry.php',
         ];
