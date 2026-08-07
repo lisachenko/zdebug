@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches:
+      - 'main'
       - '8.4-dev'
   pull_request:
+  workflow_dispatch:
 
 env:
   PHP_MINOR: '8.4'
