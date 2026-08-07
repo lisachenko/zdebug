@@ -68,7 +68,9 @@ final class DebugSession
     public function start(string $fileUri, string $ideKey, string $languageVersion): void
     {
         $this->connection->send($this->xml->init($fileUri, $ideKey, getmypid() ?: 0, $languageVersion));
-        $this->commandLoop(0);
+        // No frame is suspended in the starting state: a step_* issued here must break on
+        // the debuggee's first statement, not run the script to completion
+        $this->commandLoop(StepController::NO_FRAME_DEPTH);
     }
 
     /**

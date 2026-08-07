@@ -38,6 +38,10 @@ final class ModuleRegistrationTest extends TestCase
         $command = [
             PHP_BINARY,
             '-d', 'ffi.enable=1',
+            // Keep opcache out of the child: its optimizer constant-folds
+            // extension_loaded() at compile time, before the debugger can register
+            // the runtime module, and cached oplines predate instrumentation
+            '-d', 'opcache.enable_cli=0',
             '-d', 'opcache.jit=off',
             __DIR__ . '/fixtures/module-check.php',
         ];
