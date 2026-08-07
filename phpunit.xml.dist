@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ~ This file is part of the zdebug package.
+  ~
+  ~ @copyright Copyright 2026, Lisachenko Alexander <lisachenko.it@gmail.com>
+  ~
+  ~ This source file is subject to the license that is bundled
+  ~ with this source code in the file LICENSE.
+  ~
+  -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/12.2/phpunit.xsd"
+         colors="true"
+         bootstrap="./tests/bootstrap.php"
+         failOnWarning="true"
+         displayDetailsOnTestsThatTriggerWarnings="true"
+         displayDetailsOnTestsThatTriggerNotices="true"
+         displayDetailsOnTestsThatTriggerDeprecations="true">
+    <testsuites>
+        <testsuite name="zdebug Test Suite">
+            <directory>./tests/</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>./src</directory>
+        </include>
+    </source>
+</phpunit>
