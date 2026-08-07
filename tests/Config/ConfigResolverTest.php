@@ -118,6 +118,25 @@ final class ConfigResolverTest extends TestCase
         $this->assertFalse($config->isEnabled());
     }
 
+    public function testXdebugFillsOnlyTheGapsOwnValuesLeave(): void
+    {
+        // Own (ZDEBUG_*) specifies only the port; Xdebug supplies host + idekey; nothing
+        // specifies the timeout, so the built-in default applies last.
+        putenv('ZDEBUG_CLIENT_PORT=5000');
+
+        $config = $this->resolver([
+            'xdebug.mode'        => 'debug',
+            'xdebug.client_host' => '10.9.9.9',
+            'xdebug.client_port' => '9007',
+            'xdebug.idekey'      => 'FROMXDEBUG',
+        ])->resolve();
+
+        $this->assertSame(5000, $config->clientPort, 'own value wins where specified');
+        $this->assertSame('10.9.9.9', $config->clientHost, 'xdebug fills the gap');
+        $this->assertSame('FROMXDEBUG', $config->ideKey, 'xdebug fills the gap');
+        $this->assertSame(200, $config->connectTimeoutMs, 'hard default applies when nothing set it');
+    }
+
     public function testZdebugModeOverridesXdebugOff(): void
     {
         putenv('ZDEBUG_MODE=debug');

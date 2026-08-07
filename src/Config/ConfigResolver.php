@@ -15,12 +15,13 @@ namespace ZDebug\Config;
 use ZDebug\Config;
 
 /**
- * Builds the effective Config by layering every configuration source in precedence order
+ * Builds the effective Config by layering the configuration sources in precedence order
  *
- * Lowest to highest: built-in defaults, Xdebug's own ini/env (so an existing Xdebug
- * setup drives zdebug unchanged), the ZDEBUG_* environment (zdebug's native knobs), and
- * finally an explicit array passed to Debugger::attach(). Each layer only overrides the
- * keys it actually sets, so a partial Xdebug config coexists with ZDEBUG_* overrides.
+ * Only a source's *actual* opinions are layered - Xdebug's ini/env first, then zdebug's
+ * own ZDEBUG_* environment, then an explicit array passed to Debugger::attach(). Because
+ * each layer overrides only the keys it sets, Xdebug is a pure per-key fallback: it fills
+ * in only what your own ZDEBUG_* values leave unspecified, and never overrides them. The
+ * built-in defaults are applied last of all, when no source had an opinion at all.
  */
 final class ConfigResolver
 {
@@ -33,8 +34,9 @@ final class ConfigResolver
      */
     public function resolve(array $overrides = []): Config
     {
-        $settings = $this->defaults()
-            ->merge($this->xdebug->settings())
+        // Xdebug (fallback) < ZDEBUG_* (own) < explicit array. No defaults layer competes
+        // here: the hard defaults live only in the getters below and win nothing a source set.
+        $settings = $this->xdebug->settings()
             ->merge($this->zdebugEnvironment())
             ->merge(new Settings($overrides));
 
@@ -55,17 +57,6 @@ final class ConfigResolver
     public static function fromEnvironment(): Config
     {
         return (new self())->resolve();
-    }
-
-    private function defaults(): Settings
-    {
-        return new Settings([
-            Settings::CLIENT_HOST        => '127.0.0.1',
-            Settings::CLIENT_PORT        => 9003,
-            Settings::IDE_KEY            => 'zdebug',
-            Settings::CONNECT_TIMEOUT_MS => 200,
-            Settings::MODE               => 'debug',
-        ]);
     }
 
     /**
