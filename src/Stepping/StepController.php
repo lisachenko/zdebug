@@ -22,6 +22,18 @@ namespace ZDebug\Stepping;
  */
 final class StepController
 {
+    /**
+     * The depth to resume with when no frame is suspended (the "starting" state)
+     *
+     * Nothing of the debuggee is executing yet, so there is no frame to step over or out
+     * of. Every real depth compares as shallower than this sentinel, so any step mode
+     * breaks on the first statement the debuggee reaches - what an IDE whose very first
+     * command is step_over expects. Passing the literal 0 instead would make step_over
+     * and step_out unsatisfiable (no frame is ever at depth <= 0) and silently run the
+     * whole script to completion.
+     */
+    public const int NO_FRAME_DEPTH = PHP_INT_MAX;
+
     private ResumeMode $mode = ResumeMode::Run;
 
     private int $resumeDepth = 0;

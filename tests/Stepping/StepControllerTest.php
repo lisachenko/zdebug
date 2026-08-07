@@ -68,4 +68,28 @@ final class StepControllerTest extends TestCase
         $controller->resume(ResumeMode::StepOut, 1);
         $this->assertTrue($controller->needsDepth());
     }
+
+    /**
+     * Resuming from the "starting" state suspends no frame, so every mode has to break
+     * on the first statement the debuggee reaches - the top-level frame included
+     */
+    #[DataProvider('steppingModes')]
+    public function testSteppingFromTheStartingStateBreaksOnTheFirstStatement(ResumeMode $mode): void
+    {
+        $controller = new StepController();
+        $controller->resume($mode, StepController::NO_FRAME_DEPTH);
+
+        $this->assertTrue($controller->shouldBreak(1), 'top-level statement must stop the stepper');
+        $this->assertTrue($controller->shouldBreak(7), 'so must a statement in a nested frame');
+    }
+
+    /**
+     * @return iterable<string, array{ResumeMode}>
+     */
+    public static function steppingModes(): iterable
+    {
+        yield 'step_into' => [ResumeMode::StepInto];
+        yield 'step_over' => [ResumeMode::StepOver];
+        yield 'step_out' => [ResumeMode::StepOut];
+    }
 }
