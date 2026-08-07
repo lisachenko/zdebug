@@ -283,6 +283,75 @@ final class DbgpSessionTest extends DbgpIntegrationTestCase
         $this->finishChild('LOOP DONE', 'SUM=100');
     }
 
+    public function testExceptionBreakpointFiresBeforeTheThrow(): void
+    {
+        $ide     = new FakeIde(timeoutSeconds: 10.0);
+        $appPath = realpath(__DIR__ . '/fixtures/throwing-app.php');
+        $this->assertIsString($appPath);
+
+        $this->spawnChild($this->fixture('throwing-entry.php'), $ide->port());
+        $ide->accept();
+
+        $init = $ide->receive();
+        $this->assertSame('init', $init->getName());
+
+        // 1. an exception breakpoint on DomainException only
+        $set = $this->command($ide, 'breakpoint_set -t exception -x DomainException');
+        $this->assertNotSame('', (string) $set['id']);
+        $this->assertSame('enabled', (string) $set['state']);
+
+        // 2. run -> the LengthException thrown first must NOT break; the DomainException must
+        $break = $this->command($ide, 'run');
+        $this->assertSame('break', (string) $break['status']);
+        $this->assertSame('exception', (string) $break['reason']);
+
+        $throwLine  = $this->lineOf($appPath, "throw new DomainException('matched throw');");
+        $message    = $this->breakMessage($break);
+        $attributes = $this->attributesOf($message);
+        $this->assertSame('DomainException', $attributes['exception'] ?? null);
+        $this->assertSame((string) $throwLine, $attributes['lineno'] ?? null);
+        $this->assertStringEndsWith('throwing-app.php', $attributes['filename'] ?? '');
+        $this->assertSame('matched throw', trim((string) $message));
+
+        // 3. the frame is suspended ON the throw statement, before the exception exists
+        $stack = $this->command($ide, 'stack_get');
+        $top   = $stack->stack[0];
+        $this->assertSame((string) $throwLine, (string) $top['lineno']);
+        $this->assertStringContainsString('raiseMatched', (string) $top['where']);
+        $this->assertStringEndsWith('throwing-app.php', (string) $top['filename']);
+
+        // 4. resuming lets the throw proceed: it is caught in the fixture and the script ends
+        $end = $this->command($ide, 'run');
+        $this->assertSame('stopping', (string) $end['status']);
+
+        $stop = $this->command($ide, 'stop');
+        $this->assertSame('stopped', (string) $stop['status']);
+
+        $ide->close();
+        $this->finishChild('UNMATCHED=unmatched throw', 'MATCHED=matched throw', 'THROWING APP DONE');
+    }
+
+    public function testNonMatchingExceptionClassDoesNotBreak(): void
+    {
+        $ide = new FakeIde(timeoutSeconds: 10.0);
+
+        $this->spawnChild($this->fixture('throwing-entry.php'), $ide->port());
+        $ide->accept();
+        $ide->receive();
+
+        // Neither thrown class is (or extends) InvalidArgumentException: nothing may suspend
+        $this->command($ide, 'breakpoint_set -t exception -x InvalidArgumentException');
+
+        $end = $this->command($ide, 'run');
+        $this->assertSame('stopping', (string) $end['status'], 'A non-matching class must not break');
+
+        $stop = $this->command($ide, 'stop');
+        $this->assertSame('stopped', (string) $stop['status']);
+
+        $ide->close();
+        $this->finishChild('MATCHED=matched throw', 'THROWING APP DONE');
+    }
+
     public function testRunsUndebuggedWhenIdeIsUnreachable(): void
     {
         // No FakeIde listening: the debuggee must degrade silently and finish normally
@@ -329,5 +398,39 @@ final class DbgpSessionTest extends DbgpIntegrationTestCase
     private function errorCode(\SimpleXMLElement $response): ?int
     {
         return isset($response->error) ? (int) $response->error['code'] : null;
+    }
+
+    /**
+     * Returns the <xdebug:message> element an IDE reads to move its cursor on a break
+     *
+     * The base class' breakLocation() covers filename/lineno only; exception breaks
+     * also carry the exception class attribute and the message text.
+     */
+    private function breakMessage(\SimpleXMLElement $response): \SimpleXMLElement
+    {
+        $message = $response->children('https://xdebug.org/dbgp/xdebug')->message;
+        if (!$message instanceof \SimpleXMLElement) {
+            $this->fail('The break response carries no <xdebug:message> element');
+        }
+
+        return $message;
+    }
+
+    /**
+     * Reads the (non-namespaced) attributes of an element into a plain map
+     *
+     * SimpleXML scopes `$element['name']` to the namespace the element was reached
+     * through, so attributes of an `xdebug:`-prefixed element are only visible here.
+     *
+     * @return array<string, string>
+     */
+    private function attributesOf(\SimpleXMLElement $element): array
+    {
+        $attributes = [];
+        foreach ($element->attributes() ?? [] as $name => $value) {
+            $attributes[(string) $name] = (string) $value;
+        }
+
+        return $attributes;
     }
 }

@@ -82,6 +82,28 @@ final class ResponseBuilder
     }
 
     /**
+     * Builds the <xdebug:message> element that tells the IDE where the debuggee stopped
+     *
+     * IDEs move their cursor off filename/lineno; for an exception breakpoint Xdebug also
+     * puts the throwable's class in an `exception` attribute and its message in the element
+     * text, which is how the "first chance exception" popup gets its wording. An empty
+     * message stays a self-closing element so line breaks keep their historic shape.
+     */
+    public static function breakMessage(string $fileUri, int $line, ?string $exceptionClass = null, string $exceptionMessage = ''): string
+    {
+        $attributes = ['filename' => $fileUri, 'lineno' => (string) $line];
+        if ($exceptionClass !== null) {
+            $attributes['exception'] = $exceptionClass;
+        }
+        $element = '<xdebug:message ' . self::attributes($attributes);
+        if ($exceptionClass === null || $exceptionMessage === '') {
+            return $element . '/>';
+        }
+
+        return $element . '>' . self::escape($exceptionMessage) . '</xdebug:message>';
+    }
+
+    /**
      * Renders an attribute string from a name => value map (values XML-escaped)
      *
      * @param array<string, string> $attributes

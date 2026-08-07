@@ -30,14 +30,13 @@ use ZEngine\System\OpCode;
  *
  * Compiling with COMPILE_EXTENDED_STMT emits an EXT_STMT opline before every statement;
  * this handler runs on each. It is a raw FFI callback, so the two invariants from
- * AGENTS.md are absolute: (1) a static reentrancy latch is checked first, because the
- * debugger's own PHP would otherwise recurse into this very handler, and (2) nothing
- * may throw - the whole body is wrapped, and only the closure-safe frame API is used.
+ * AGENTS.md are absolute: (1) the shared HookLatch is checked first, because the
+ * debugger's own PHP would otherwise recurse into this very handler (or into the THROW
+ * handler, which is why the latch is shared rather than per-hook), and (2) nothing may
+ * throw - the whole body is wrapped, and only the closure-safe frame API is used.
  */
 final class StatementHook
 {
-    private static bool $inDebugger = false;
-
     private ?OpCodeHook $hook = null;
 
     /** @var (callable(): ?DebugSession)|null */
@@ -74,13 +73,12 @@ final class StatementHook
      */
     private function onStatement($scope): int
     {
-        // (1) Reentrancy latch FIRST, and set BEFORE any zdebug code runs: resolving the
-        // session and every check below execute instrumented PHP that would otherwise
+        // (1) Reentrancy latch FIRST, and engaged BEFORE any zdebug code runs: resolving
+        // the session and every check below execute instrumented PHP that would otherwise
         // re-enter this very handler (isLive(), evaluate(), the whole break loop).
-        if (self::$inDebugger) {
+        if (!HookLatch::tryEnter()) {
             return Core::ZEND_USER_OPCODE_DISPATCH;
         }
-        self::$inDebugger = true;
         try {
             if (!$scope instanceof ExecutionData) {
                 return Core::ZEND_USER_OPCODE_DISPATCH;
@@ -95,7 +93,7 @@ final class StatementHook
             // (2) Nothing escapes the FFI callback
             $this->log->exception($error);
         } finally {
-            self::$inDebugger = false;
+            HookLatch::leave();
         }
 
         return Core::ZEND_USER_OPCODE_DISPATCH;
