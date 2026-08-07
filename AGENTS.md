@@ -7,8 +7,9 @@ is the design ground truth this package implements.
 
 ## Branch model
 
-`8.4-dev` targets PHP 8.4 (unstable dev line). Engine memory layouts change between PHP
-minors, so each PHP minor gets its own branch, mirroring z-engine.
+`main` supports PHP 8.4 and 8.5 in parallel. Engine memory layouts change between PHP
+minors, so each minor rides its own z-engine line (`8.4.x-dev` on PHP 8.4, `8.5.x-dev`
+on PHP 8.5) and Composer resolves the matching one for the running PHP.
 
 ## Environment requirements
 
