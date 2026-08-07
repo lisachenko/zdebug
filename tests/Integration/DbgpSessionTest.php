@@ -207,10 +207,14 @@ final class DbgpSessionTest extends TestCase
             PHP_BINARY,
             '-d', 'ffi.enable=1',
             '-d', 'zend.assertions=1',
+            '-d', 'opcache.enable_cli=0',
             '-d', 'opcache.jit=off',
             __DIR__ . '/fixtures/' . $entry,
         ];
         $env = [
+            // Explicit mode: a host Xdebug config (CI images ship xdebug.mode=off)
+            // must not switch the debuggee off through the compat fallback
+            'ZDEBUG_MODE'               => 'debug',
             'ZDEBUG_CLIENT_HOST'        => '127.0.0.1',
             'ZDEBUG_CLIENT_PORT'        => (string) $port,
             'ZDEBUG_IDEKEY'             => 'phpunit',
