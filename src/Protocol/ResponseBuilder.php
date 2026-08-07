@@ -98,9 +98,33 @@ final class ResponseBuilder
 
     /**
      * Escapes a value for use in an XML attribute or element text node
+     *
+     * Control characters illegal in XML 1.0 (notably the NUL bytes PHP embeds in
+     * anonymous-class names) are stripped first: htmlspecialchars would pass them
+     * through and produce a document no parser accepts.
      */
     public static function escape(string $value): string
     {
+        $value = self::stripInvalidXmlChars($value);
+
         return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+    }
+
+    /**
+     * Removes characters not permitted in XML 1.0 documents
+     *
+     * XML 1.0 allows only tab, newline, carriage return and the printable ranges;
+     * anonymous-class names ("class@anonymous\0...") and binary string values would
+     * otherwise break well-formedness.
+     */
+    public static function stripInvalidXmlChars(string $value): string
+    {
+        $cleaned = preg_replace('/[^\x09\x0A\x0D\x20-\x{10FFFF}]/u', '', $value);
+        if ($cleaned !== null) {
+            return $cleaned;
+        }
+
+        // Invalid UTF-8 in the input: fall back to stripping every non-printable-ASCII byte
+        return (string) preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '', $value);
     }
 }

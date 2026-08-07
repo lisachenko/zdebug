@@ -5,13 +5,16 @@ parameters:
         - src
         - tests
         - bootstrap
-    # FFI\CData is dynamically typed - the engine structs it wraps are only known
-    # at runtime from the loaded header, so field access on CData cannot be
-    # statically resolved. The whole zdebug FFI blast radius is confined to the one
-    # audited raw read in OpArrayGate (op_array->filename); scope the ignore there.
+    # The whole zdebug FFI blast radius is confined to OpArrayGate, which reads two
+    # raw engine struct fields (op_array->filename / ->function_name) off the shaped
+    # pointer z-engine returns. That shape alias is internal to z-engine and resolves
+    # to an unknown class here, and the field values are mixed CData - unavoidable and
+    # audited, so the FFI-shaped errors are ignored for this one file only.
     ignoreErrors:
         -
-            identifier: property.notFound
-            message: '#Access to an undefined property FFI\\CData::#'
+            identifier: class.notFound
+            path: src/Instrumentation/OpArrayGate.php
+        -
+            identifier: argument.type
             path: src/Instrumentation/OpArrayGate.php
     reportUnmatchedIgnoredErrors: false

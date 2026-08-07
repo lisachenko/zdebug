@@ -22,13 +22,13 @@ namespace ZDebug;
 final class Config
 {
     /**
-     * @param string   $clientHost      Host the IDE listens on (the debugger connects OUT to it)
-     * @param int      $clientPort      Port the IDE listens on (Xdebug 3 default: 9003)
-     * @param string   $ideKey          Session key echoed to the IDE in the <init> packet
-     * @param string[] $pathFilter      Realpath prefixes whose code is observed; empty = observe everything
-     * @param int      $connectTimeoutMs Connect timeout in milliseconds; on failure the app runs undebugged
-     * @param string   $mode            'debug' to arm the debugger, 'off' to become a no-op
-     * @param string|null $logFile      Absolute path for the diagnostics log, or null to disable
+     * @param string       $clientHost       Host the IDE listens on (the debugger connects OUT to it)
+     * @param int          $clientPort       Port the IDE listens on (Xdebug 3 default: 9003)
+     * @param string       $ideKey           Session key echoed to the IDE in the <init> packet
+     * @param list<string> $pathFilter       Realpath prefixes whose code is observed; empty = observe everything
+     * @param int          $connectTimeoutMs Connect timeout in milliseconds; on failure the app runs undebugged
+     * @param string       $mode             'debug' to arm the debugger, 'off' to become a no-op
+     * @param string|null  $logFile          Absolute path for the diagnostics log, or null to disable
      */
     public function __construct(
         public readonly string $clientHost = '127.0.0.1',
