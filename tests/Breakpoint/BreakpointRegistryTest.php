@@ -83,4 +83,41 @@ final class BreakpointRegistryTest extends TestCase
 
         $this->assertCount(1, $registry->forException(\LogicException::class));
     }
+
+    public function testExceptionGateIsClosedUntilAnExceptionBreakpointExists(): void
+    {
+        $registry = new BreakpointRegistry();
+        $this->assertFalse($registry->hasExceptionBreakpoints());
+
+        // A line breakpoint must not open the THROW hook's gate
+        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_LINE, file: '/a.php', line: 3));
+        $this->assertFalse($registry->hasExceptionBreakpoints());
+
+        $registry->add(new Breakpoint(id: 2, type: Breakpoint::TYPE_EXCEPTION, exceptionName: \RuntimeException::class));
+        $this->assertTrue($registry->hasExceptionBreakpoints());
+    }
+
+    public function testExceptionGateClosesAgainWhenTheLastBreakpointIsRemoved(): void
+    {
+        $registry = new BreakpointRegistry();
+        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, exceptionName: \RuntimeException::class));
+        $registry->add(new Breakpoint(id: 2, type: Breakpoint::TYPE_EXCEPTION, exceptionName: '*'));
+
+        $this->assertTrue($registry->remove(1));
+        $this->assertTrue($registry->hasExceptionBreakpoints());
+
+        $this->assertTrue($registry->remove(2));
+        $this->assertFalse($registry->hasExceptionBreakpoints());
+        $this->assertSame([], $registry->forException(\RuntimeException::class));
+    }
+
+    public function testDisabledExceptionBreakpointKeepsTheGateOpenButNeverMatches(): void
+    {
+        $registry = new BreakpointRegistry();
+        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, enabled: false, exceptionName: '*'));
+
+        // The gate is a cheap "anything registered at all" check; enablement is forException()'s job
+        $this->assertTrue($registry->hasExceptionBreakpoints());
+        $this->assertSame([], $registry->forException(\RuntimeException::class));
+    }
 }

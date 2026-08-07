@@ -18,6 +18,7 @@ use ZDebug\Context\StackCollector;
 use ZDebug\Instrumentation\FileFilter;
 use ZDebug\Instrumentation\OpArrayGate;
 use ZDebug\Instrumentation\StatementHook;
+use ZDebug\Instrumentation\ThrowHook;
 use ZDebug\Protocol\DbgpConnection;
 use ZDebug\Protocol\FileUri;
 use ZDebug\Protocol\ResponseBuilder;
@@ -55,6 +56,7 @@ final class Debugger
         private readonly StepController $stepper,
         private readonly StackCollector $stackCollector,
         private readonly StatementHook $statementHook,
+        private readonly ThrowHook $throwHook,
     ) {}
 
     /**
@@ -81,8 +83,9 @@ final class Debugger
         $stepper     = new StepController();
         $collector   = new StackCollector($gate);
         $hook        = new StatementHook($gate, $breakpoints, $stepper, $log);
+        $throwHook   = new ThrowHook($breakpoints, $log);
 
-        $debugger       = new self($config, $log, $breakpoints, $stepper, $collector, $hook);
+        $debugger       = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $throwHook);
         self::$instance = $debugger;
 
         if ($config->isEnabled()) {
@@ -110,6 +113,8 @@ final class Debugger
      */
     public function detach(): void
     {
+        // LIFO, mirroring the installation order in boot()
+        $this->throwHook->uninstall();
         $this->statementHook->uninstall();
         $this->session  = null;
         $this->attached = false;
@@ -143,6 +148,9 @@ final class Debugger
         $compiler->setOptions($compiler->getOptions() | Compiler::COMPILE_EXTENDED_STMT);
 
         $this->statementHook->install(fn(): ?DebugSession => $this->session);
+        // Exception breakpoints ride the THROW opcode: the only window where a PHP callback
+        // may look at an exception, since ext-ffi aborts once EG(exception) is set
+        $this->throwHook->install(fn(): ?DebugSession => $this->session);
         $this->attached = true;
 
         $connection = DbgpConnection::connect(

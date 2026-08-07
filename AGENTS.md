@@ -25,9 +25,12 @@ The EXT_STMT / THROW / interrupt handlers run inside FFI callbacks. A `\Throwabl
 escapes one is a **fatal engine abort** ("Throwing from FFI callbacks is not allowed"),
 not a catchable error. Every handler entry point therefore:
 
-1. checks the `static bool $inDebugger` reentrancy latch first and bails if set (the
-   debugger's own PHP re-enters its own hook otherwise — z-engine only auto-excludes
-   `ZEngine\*` classes, not `ZDebug\*`), and
+1. checks the reentrancy latch first and bails if it is held — `HookLatch::tryEnter()`,
+   released in a `finally` (the debugger's own PHP re-enters its own hooks otherwise —
+   z-engine only auto-excludes `ZEngine\*` classes, not `ZDebug\*`). The latch is a
+   single process-wide flag **shared by every hook**: a per-hook latch would let the
+   handlers re-enter through each other (a `throw` inside the suspended statement hook
+   would reach the THROW handler), and
 2. wraps its whole body in `try { ... } catch (\Throwable) { ...log... }`.
 
 Frame inspection uses only the closure-safe API: `getFunctionEntry()` (not
