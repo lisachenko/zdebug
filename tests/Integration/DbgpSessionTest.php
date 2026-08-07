@@ -119,6 +119,100 @@ final class DbgpSessionTest extends TestCase
         $this->assertChildFinishedCleanly();
     }
 
+    public function testEvalReturnsThePropertyForAnExpressionOverFrameLocals(): void
+    {
+        $ide     = new FakeIde(timeoutSeconds: 10.0);
+        $appPath = realpath(__DIR__ . '/fixtures/app.php');
+        $this->assertIsString($appPath);
+
+        $this->spawnChild($ide->port());
+        $ide->accept();
+        $ide->receive(); // <init>
+
+        // Nothing is suspended yet: eval falls back to an empty scope, so a constant
+        // expression still answers (the documented `starting`-state behaviour)
+        $constant = $this->evalExpression($ide, '6 * 7');
+        $this->assertSame('1', (string) $constant['success']);
+        $this->assertSame('42', $this->propertyValue($constant));
+
+        $this->command($ide, 'feature_set -n max_depth -v 2');
+
+        $bpLine = $this->lineOf($appPath, '$result  = $doubled + $tripled;');
+        $set    = $this->command($ide, "breakpoint_set -t line -f file://{$appPath} -n {$bpLine}");
+        $break  = $this->command($ide, 'run');
+        $this->assertSame('break', (string) $break['status']);
+
+        // Arithmetic over two locals of the suspended frame
+        $arithmetic = $this->evalExpression($ide, '$seed * 10 + $doubled');
+        $this->assertSame('int', (string) $arithmetic->property['type']);
+        $this->assertSame('84', $this->propertyValue($arithmetic));
+
+        // String result, and the expression is echoed back as the property name/fullname
+        $concatenated = $this->evalExpression($ide, "'seed=' . \$seed");
+        $this->assertSame('string', (string) $concatenated->property['type']);
+        $this->assertSame("'seed=' . \$seed", (string) $concatenated->property['name']);
+        $this->assertSame('seed=7', $this->propertyValue($concatenated));
+
+        // Containers are serialized like any other property, children included
+        $array = $this->evalExpression($ide, '[$doubled, $tripled]');
+        $this->assertSame('array', (string) $array->property['type']);
+        $this->assertSame('2', (string) $array->property['numchildren']);
+        $this->assertSame('21', base64_decode((string) $array->property->property[1]));
+
+        // -d selects the frame: depth 1 is {main}, where the frame locals differ
+        $caller = $this->evalExpression($ide, 'isset($answer)', depth: 1);
+        $this->assertSame('bool', (string) $caller->property['type']);
+        $this->assertSame('0', $this->propertyValue($caller));
+
+        $this->command($ide, "breakpoint_remove -d {$set['id']}");
+        $this->assertSame('stopping', (string) $this->command($ide, 'run')['status']);
+        $this->command($ide, 'stop');
+
+        $ide->close();
+        $this->assertChildFinishedCleanly();
+    }
+
+    public function testEvalOfAFailingExpressionReturnsError206AndKeepsTheSessionUsable(): void
+    {
+        $ide     = new FakeIde(timeoutSeconds: 10.0);
+        $appPath = realpath(__DIR__ . '/fixtures/app.php');
+        $this->assertIsString($appPath);
+
+        $this->spawnChild($ide->port());
+        $ide->accept();
+        $ide->receive(); // <init>
+
+        $bpLine = $this->lineOf($appPath, '$result  = $doubled + $tripled;');
+        $set    = $this->command($ide, "breakpoint_set -t line -f file://{$appPath} -n {$bpLine}");
+        $this->assertSame('break', (string) $this->command($ide, 'run')['status']);
+
+        // An expression that throws: DBGp error 206, and the debuggee stays suspended
+        $throwing = $this->evalExpression($ide, 'intdiv($seed, 0)');
+        $this->assertSame(206, $this->errorCode($throwing));
+
+        // An expression that does not even parse fails the same way
+        $malformed = $this->evalExpression($ide, '$seed +');
+        $this->assertSame(206, $this->errorCode($malformed));
+
+        // A missing expression is a client error, not an evaluation failure
+        $ide->send('eval');
+        $this->assertSame(207, $this->errorCode($ide->receive()));
+
+        // The session is still fully usable afterwards
+        $locals = $this->properties($this->command($ide, 'context_get -c 0 -d 0'));
+        $this->assertSame('7', $locals['$seed'] ?? null);
+
+        $recovered = $this->evalExpression($ide, '$doubled + 1');
+        $this->assertSame('15', $this->propertyValue($recovered));
+
+        $this->command($ide, "breakpoint_remove -d {$set['id']}");
+        $this->assertSame('stopping', (string) $this->command($ide, 'run')['status']);
+        $this->command($ide, 'stop');
+
+        $ide->close();
+        $this->assertChildFinishedCleanly();
+    }
+
     public function testRunsUndebuggedWhenIdeIsUnreachable(): void
     {
         // No FakeIde listening: the debuggee must degrade silently and finish normally
@@ -172,6 +266,34 @@ final class DbgpSessionTest extends TestCase
         $ide->send($command);
 
         return $ide->receive();
+    }
+
+    /**
+     * Sends `eval [-d depth] -- base64(expression)` and returns the response
+     */
+    private function evalExpression(FakeIde $ide, string $expression, ?int $depth = null): \SimpleXMLElement
+    {
+        $arguments = $depth !== null ? "-d {$depth} " : '';
+
+        return $this->command($ide, 'eval ' . $arguments . '-- ' . base64_encode($expression));
+    }
+
+    /**
+     * Decodes the single <property> of an eval response
+     */
+    private function propertyValue(\SimpleXMLElement $response): string
+    {
+        $this->assertTrue(isset($response->property), 'the response carries a <property>');
+
+        return base64_decode((string) $response->property);
+    }
+
+    /**
+     * Returns the DBGp error code of a response, or null when it is not an error
+     */
+    private function errorCode(\SimpleXMLElement $response): ?int
+    {
+        return isset($response->error) ? (int) $response->error['code'] : null;
     }
 
     /**

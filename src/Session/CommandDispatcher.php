@@ -37,6 +37,7 @@ final class CommandDispatcher
         private readonly BreakpointRegistry $breakpoints,
         private readonly ContextProvider $context,
         private readonly ResponseBuilder $xml,
+        private readonly ConditionEvaluator $evaluator,
     ) {}
 
     public function dispatch(Command $command): DispatchResult
@@ -62,6 +63,7 @@ final class CommandDispatcher
             'stack_get'         => $this->stackGet($command),
             'context_names'     => $this->contextNames($command),
             'context_get'       => $this->contextGet($command),
+            'eval'              => $this->evaluate($command),
             'run'               => DispatchResult::continuation(ResumeMode::Run),
             'step_into'         => DispatchResult::continuation(ResumeMode::StepInto),
             'step_over'         => DispatchResult::continuation(ResumeMode::StepOver),
@@ -236,6 +238,60 @@ final class CommandDispatcher
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
             'context' => (string) $contextId,
         ], $body));
+    }
+
+    /**
+     * eval: evaluates an expression in a suspended frame and returns the result
+     *
+     * The expression arrives base64-encoded in the data part; -d selects the stack frame
+     * (0, the innermost, by default). Evaluation is read-only - writing back to the frame
+     * is out of scope - and can never throw: ConditionEvaluator turns every failure into
+     * DBGp error 206, because this runs inside the FFI statement callback.
+     */
+    private function evaluate(Command $command): DispatchResult
+    {
+        $expression = $command->data ?? '';
+        if (trim($expression) === '') {
+            return $this->error($command, ErrorCode::INVALID_EXPRESSION, 'eval requires an expression in the data part');
+        }
+
+        $depth = $command->intArgument('d', 0) ?? 0;
+        $scope = $this->evaluationScope($depth);
+        if ($scope === null) {
+            return $this->error($command, ErrorCode::STACK_DEPTH_INVALID, "No stack frame at depth {$depth}");
+        }
+
+        $result = $this->evaluator->evaluate($expression, $scope);
+        if (!$result->ok) {
+            return $this->error($command, ErrorCode::EVAL_FAILED, (string) $result->error);
+        }
+
+        $body = $this->propertySerializer()->serialize($expression, $expression, $result->value);
+
+        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
+            'success' => '1',
+        ], $body));
+    }
+
+    /**
+     * Builds the variable scope an eval runs in, or null when the depth is out of range
+     *
+     * With nothing suspended (the `starting` and `stopping` states, where the IDE may still
+     * probe a watch expression) there are no frames at all and the expression is evaluated
+     * against an EMPTY scope rather than rejected, so constant expressions keep working.
+     * Once a stack IS suspended, an out-of-range -d is a real client error and reported as
+     * such - exactly like context_get.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function evaluationScope(int $depth): ?array
+    {
+        $frame = $this->session->frameAtLevel($depth);
+        if ($frame !== null) {
+            return $this->context->variables($frame, ContextProvider::CONTEXT_LOCALS);
+        }
+
+        return $this->session->suspendedStack() === [] ? [] : null;
     }
 
     private function stop(Command $command): DispatchResult

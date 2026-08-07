@@ -138,7 +138,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Locals, args, `$this` | ✅ | Named, from CV slots — no symbol table needed |
 | Superglobals | ✅ | From the engine global symbol table |
 | Variable inspection (`property_get`) | 🚧 | Scalars & one array level today; paging in M2 |
-| `eval` in frame | 🚧 | M3 |
+| `eval` in frame | ✅ | Read-only: evaluated against the locals of the frame selected by `-d` |
 | Exception breakpoints | 🚧 | First-chance via the `THROW` opcode — M3 |
 | Attach to already-running code | ❌ | Only code compiled after attach is steppable |
 | Opcache-cached scripts | ❌ | Invisible unless the cache is cold |
@@ -157,7 +157,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 zdebug is at **M1**: a working vertical slice — your IDE attaches, hits a line breakpoint, and inspects the stack and locals, proven by an end-to-end test that plays the IDE against a real child process.
 
 - **M2** — step over/into/out, deeper variable inspection with paging, `source`, `detach`
-- **M3** — conditional breakpoints & hit counts, `eval`, first-chance exception breakpoints, async "pause", per-file instrumentation gating for near-zero overhead outside the filter
+- **M3** — conditional breakpoints & hit counts, first-chance exception breakpoints, async "pause", per-file instrumentation gating for near-zero overhead outside the filter
 
 ## Credits
 
