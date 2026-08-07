@@ -13,11 +13,11 @@ declare(strict_types=1);
 namespace ZDebug;
 
 /**
- * Immutable debugger configuration
+ * Immutable, fully-resolved debugger configuration
  *
- * Mirrors the shape of Xdebug's XDEBUG_CONFIG/XDEBUG_MODE settings, namespaced under
- * ZDEBUG_* so the two can coexist in one environment. fromEnvironment() reads the
- * process environment; the constructor keeps the object trivially unit-testable.
+ * The layering of configuration sources (Xdebug ini/env, the ZDEBUG_* environment,
+ * explicit overrides) lives in ZDebug\Config\ConfigResolver; this class is just the
+ * resolved result, which keeps it trivially unit-testable.
  */
 final class Config
 {
@@ -41,38 +41,14 @@ final class Config
     ) {}
 
     /**
-     * Builds a configuration from the ZDEBUG_* environment variables
+     * Builds a configuration from the ambient sources (Xdebug ini/env + ZDEBUG_*)
      *
-     * ZDEBUG_CLIENT_HOST, ZDEBUG_CLIENT_PORT, ZDEBUG_IDEKEY (falls back to the
-     * DBGP_IDEKEY convention), ZDEBUG_PATH_FILTER (a PATH_SEPARATOR-separated list of
-     * prefixes), ZDEBUG_CONNECT_TIMEOUT_MS, ZDEBUG_MODE, ZDEBUG_LOG.
+     * Delegates to ConfigResolver, which layers Xdebug's own configuration under the
+     * native ZDEBUG_* variables so an existing Xdebug setup drives zdebug unchanged.
      */
     public static function fromEnvironment(): self
     {
-        $pathFilterRaw = self::env('ZDEBUG_PATH_FILTER');
-        $pathFilter    = [];
-        if ($pathFilterRaw !== null && $pathFilterRaw !== '') {
-            foreach (explode(PATH_SEPARATOR, $pathFilterRaw) as $prefix) {
-                $normalized = self::normalizePrefix($prefix);
-                if ($normalized !== null) {
-                    $pathFilter[] = $normalized;
-                }
-            }
-        }
-
-        $port    = self::env('ZDEBUG_CLIENT_PORT');
-        $timeout = self::env('ZDEBUG_CONNECT_TIMEOUT_MS');
-        $ideKey  = self::env('ZDEBUG_IDEKEY') ?? self::env('DBGP_IDEKEY') ?? 'zdebug';
-
-        return new self(
-            clientHost: self::env('ZDEBUG_CLIENT_HOST') ?? '127.0.0.1',
-            clientPort: $port !== null ? (int) $port : 9003,
-            ideKey: $ideKey,
-            pathFilter: $pathFilter,
-            connectTimeoutMs: $timeout !== null ? (int) $timeout : 200,
-            mode: self::env('ZDEBUG_MODE') ?? 'debug',
-            logFile: self::env('ZDEBUG_LOG'),
-        );
+        return Config\ConfigResolver::fromEnvironment();
     }
 
     /**
@@ -81,23 +57,5 @@ final class Config
     public function isEnabled(): bool
     {
         return $this->mode !== 'off';
-    }
-
-    private static function env(string $name): ?string
-    {
-        $value = getenv($name);
-
-        return $value === false ? null : $value;
-    }
-
-    private static function normalizePrefix(string $prefix): ?string
-    {
-        $prefix = trim($prefix);
-        if ($prefix === '') {
-            return null;
-        }
-        $real = realpath($prefix);
-
-        return $real !== false ? $real : $prefix;
     }
 }

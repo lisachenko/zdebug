@@ -23,6 +23,8 @@ final class ConfigTest extends TestCase
     private const array VARS = [
         'ZDEBUG_CLIENT_HOST', 'ZDEBUG_CLIENT_PORT', 'ZDEBUG_IDEKEY', 'DBGP_IDEKEY',
         'ZDEBUG_PATH_FILTER', 'ZDEBUG_CONNECT_TIMEOUT_MS', 'ZDEBUG_MODE', 'ZDEBUG_LOG',
+        // Cleared so an Xdebug-configured host environment cannot leak into these tests
+        'XDEBUG_MODE', 'XDEBUG_CONFIG', 'XDEBUG_SESSION', 'XDEBUG_TRIGGER',
     ];
 
     protected function setUp(): void

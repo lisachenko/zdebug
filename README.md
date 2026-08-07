@@ -74,9 +74,46 @@ ZDebug\Debugger::attach([
 require __DIR__ . '/app.php';            // compiled after attach → debuggable
 ```
 
+## Drop-in Xdebug compatibility
+
+zdebug reads **Xdebug's own configuration** — so if you already have an Xdebug setup, it just works. Both the `xdebug.*` ini directives and the `XDEBUG_*` environment are honored, with Xdebug 3 semantics:
+
+```bash
+# An existing Xdebug 3 configuration drives zdebug unchanged:
+php -d ffi.enable=1 -d opcache.jit=off \
+    -d xdebug.mode=debug -d xdebug.client_host=127.0.0.1 -d xdebug.client_port=9003 \
+    -d auto_prepend_file=vendor/lisachenko/zdebug/bootstrap/zdebug.php \
+    app.php
+
+# start_with_request=trigger → only debug when the trigger is present, like Xdebug:
+XDEBUG_TRIGGER=1 php ... app.php
+```
+
+Recognized Xdebug settings: `xdebug.mode` / `XDEBUG_MODE` (step debugging needs `debug`), `xdebug.client_host`, `xdebug.client_port`, `xdebug.idekey`, `xdebug.start_with_request` (`yes` / `no` / `trigger` / `default`), `xdebug.trigger_value`, `xdebug.log`, and the `XDEBUG_CONFIG`, `XDEBUG_SESSION`, `XDEBUG_TRIGGER` environment variables.
+
+## It shows up like a real extension
+
+zdebug registers itself as a genuine engine module at runtime — the same technique APCu used to stand in for APC. Even though there's no compiled extension, the standard tooling reports it:
+
+```php
+extension_loaded('zdebug');          // true
+in_array('zdebug', get_loaded_extensions(), true); // true
+```
+
+```
+zdebug support  => enabled
+Version         => 0.1.0
+Protocol        => DBGp (Xdebug-compatible)
+IDE debugger    => no C extension (z-engine FFI)
+Mode            => debug
+Client host     => 127.0.0.1
+Client port     => 9003
+Debug session   => active
+```
+
 ## Configuration
 
-All settings come from the environment (mirroring Xdebug's `XDEBUG_*` convention):
+zdebug's **native** settings (these take precedence over any Xdebug settings above):
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -87,6 +124,8 @@ All settings come from the environment (mirroring Xdebug's `XDEBUG_*` convention
 | `ZDEBUG_PATH_FILTER` | *(all)* | `:`-separated path prefixes to instrument — scope this to your code for speed |
 | `ZDEBUG_CONNECT_TIMEOUT_MS` | `200` | If the IDE is not listening, the app runs undebugged |
 | `ZDEBUG_LOG` | *(none)* | Path to an optional diagnostics log |
+
+Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_*` → an explicit array passed to `Debugger::attach([...])`.
 
 ## What works vs. Xdebug
 

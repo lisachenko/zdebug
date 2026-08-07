@@ -16,13 +16,16 @@
  *         -d auto_prepend_file=vendor/lisachenko/zdebug/bootstrap/zdebug.php \
  *         app.php
  *
- * Configure via the ZDEBUG_* environment variables (see ZDebug\Config). Set
- * ZDEBUG_MODE=off to make this a no-op without removing the prepend.
+ * Configuration is read from Xdebug's own ini/env (xdebug.mode, xdebug.client_*,
+ * XDEBUG_CONFIG, XDEBUG_TRIGGER, ...) AND from the native ZDEBUG_* variables, which
+ * take precedence. So an existing Xdebug setup drives zdebug unchanged; set
+ * ZDEBUG_MODE=off (or xdebug.mode without `debug`) to make this a no-op.
  * ---------------------------------------------------------------------------
  */
 declare(strict_types=1);
 
 (static function (): void {
+    // Hard opt-out that avoids loading anything at all
     if (getenv('ZDEBUG_MODE') === 'off') {
         return;
     }

@@ -21,6 +21,7 @@ use ZDebug\Instrumentation\StatementHook;
 use ZDebug\Protocol\DbgpConnection;
 use ZDebug\Protocol\FileUri;
 use ZDebug\Protocol\ResponseBuilder;
+use ZDebug\Runtime\ZDebugModule;
 use ZDebug\Session\DebugSession;
 use ZDebug\Session\Features;
 use ZDebug\Stepping\StepController;
@@ -42,6 +43,8 @@ final class Debugger
     private static ?self $instance = null;
 
     private ?DebugSession $session = null;
+
+    private ?ZDebugModule $module = null;
 
     private bool $attached = false;
 
@@ -67,7 +70,7 @@ final class Debugger
 
         $config = match (true) {
             $config instanceof Config => $config,
-            is_array($config)         => self::configFromArray($config),
+            is_array($config)         => (new Config\ConfigResolver())->resolve(self::mapArrayKeys($config)),
             default                   => Config::fromEnvironment(),
         };
 
@@ -95,6 +98,14 @@ final class Debugger
     }
 
     /**
+     * Returns the registered runtime module, or null when the debugger is not armed
+     */
+    public function module(): ?ZDebugModule
+    {
+        return $this->module;
+    }
+
+    /**
      * Tears down the hooks and session (primarily for tests)
      */
     public function detach(): void
@@ -114,6 +125,10 @@ final class Debugger
         if (!isset(Core::$compiler)) {
             Core::init();
         }
+
+        // Present zdebug to the engine as a real module, so `php -m`, phpinfo() and
+        // get_loaded_extensions() report it like a compiled extension (APCu-for-APC style)
+        $this->registerModule();
 
         // Compile EVERY zdebug class BEFORE enabling extended-statement compilation, so
         // none of the debugger's own op_arrays carry EXT_STMT oplines. This is mandatory,
@@ -145,7 +160,26 @@ final class Debugger
             return;
         }
 
+        $this->module?->describe($this->config, true);
         $this->openSession($connection);
+    }
+
+    /**
+     * Registers the runtime module (best-effort: a failure must never break the app)
+     */
+    private function registerModule(): void
+    {
+        try {
+            $module = new ZDebugModule('zdebug');
+            if (!$module->isModuleRegistered()) {
+                $module->register();
+                $module->startup();
+            }
+            $module->describe($this->config, false);
+            $this->module = $module;
+        } catch (\Throwable $error) {
+            $this->log->exception($error);
+        }
     }
 
     private function openSession(DbgpConnection $connection): void
@@ -195,49 +229,28 @@ final class Debugger
     }
 
     /**
+     * Normalizes an explicit config array into the Settings key space
+     *
+     * Accepts the documented public keys (client_host, client_port, idekey, path_filter,
+     * connect_timeout_ms, mode, log) and passes them through unchanged; unknown keys are
+     * dropped so a typo cannot silently create a phantom setting.
+     *
      * @param array<string, mixed> $config
+     *
+     * @return array<string, mixed>
      */
-    private static function configFromArray(array $config): Config
+    private static function mapArrayKeys(array $config): array
     {
-        $base       = Config::fromEnvironment();
-        $pathFilter = $base->pathFilter;
-        if (isset($config['path_filter']) && is_array($config['path_filter'])) {
-            $pathFilter = [];
-            foreach ($config['path_filter'] as $prefix) {
-                if (is_string($prefix)) {
-                    $pathFilter[] = $prefix;
-                }
-            }
-        }
+        $allowed = [
+            Config\Settings::CLIENT_HOST,
+            Config\Settings::CLIENT_PORT,
+            Config\Settings::IDE_KEY,
+            Config\Settings::PATH_FILTER,
+            Config\Settings::CONNECT_TIMEOUT_MS,
+            Config\Settings::MODE,
+            Config\Settings::LOG,
+        ];
 
-        return new Config(
-            clientHost: self::stringOption($config, 'client_host', $base->clientHost),
-            clientPort: self::intOption($config, 'client_port', $base->clientPort),
-            ideKey: self::stringOption($config, 'idekey', $base->ideKey),
-            pathFilter: $pathFilter,
-            connectTimeoutMs: self::intOption($config, 'connect_timeout_ms', $base->connectTimeoutMs),
-            mode: self::stringOption($config, 'mode', $base->mode),
-            logFile: isset($config['log']) && is_string($config['log']) ? $config['log'] : $base->logFile,
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $config
-     */
-    private static function stringOption(array $config, string $key, string $default): string
-    {
-        $value = $config[$key] ?? null;
-
-        return is_scalar($value) ? (string) $value : $default;
-    }
-
-    /**
-     * @param array<string, mixed> $config
-     */
-    private static function intOption(array $config, string $key, int $default): int
-    {
-        $value = $config[$key] ?? null;
-
-        return is_numeric($value) ? (int) $value : $default;
+        return array_intersect_key($config, array_flip($allowed));
     }
 }
