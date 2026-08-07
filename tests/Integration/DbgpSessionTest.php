@@ -139,6 +139,9 @@ final class DbgpSessionTest extends TestCase
             __DIR__ . '/fixtures/entry.php',
         ];
         $env = [
+            // Explicit mode: a host Xdebug config (CI images ship xdebug.mode=off)
+            // must not switch the debuggee off through the compat fallback
+            'ZDEBUG_MODE'               => 'debug',
             'ZDEBUG_CLIENT_HOST'        => '127.0.0.1',
             'ZDEBUG_CLIENT_PORT'        => (string) $port,
             'ZDEBUG_IDEKEY'             => 'phpunit',
