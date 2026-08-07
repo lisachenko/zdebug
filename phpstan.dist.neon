@@ -1,0 +1,17 @@
+parameters:
+    level: max
+    phpVersion: 80400
+    paths:
+        - src
+        - tests
+        - bootstrap
+    # FFI\CData is dynamically typed - the engine structs it wraps are only known
+    # at runtime from the loaded header, so field access on CData cannot be
+    # statically resolved. The whole zdebug FFI blast radius is confined to the one
+    # audited raw read in OpArrayGate (op_array->filename); scope the ignore there.
+    ignoreErrors:
+        -
+            identifier: property.notFound
+            message: '#Access to an undefined property FFI\\CData::#'
+            path: src/Instrumentation/OpArrayGate.php
+    reportUnmatchedIgnoredErrors: false
