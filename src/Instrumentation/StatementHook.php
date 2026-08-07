@@ -12,9 +12,12 @@ declare(strict_types=1);
 
 namespace ZDebug\Instrumentation;
 
+use ZDebug\Breakpoint\Breakpoint;
 use ZDebug\Breakpoint\BreakpointRegistry;
+use ZDebug\Context\ContextProvider;
 use ZDebug\Context\StackCollector;
 use ZDebug\Log;
+use ZDebug\Session\ConditionEvaluator;
 use ZDebug\Session\DebugSession;
 use ZDebug\Stepping\StepController;
 use ZEngine\Core;
@@ -44,6 +47,8 @@ final class StatementHook
         private readonly BreakpointRegistry $breakpoints,
         private readonly StepController $stepper,
         private readonly Log $log,
+        private readonly ContextProvider $context,
+        private readonly ConditionEvaluator $evaluator,
     ) {}
 
     /**
@@ -111,14 +116,53 @@ final class StatementHook
         if (!$shouldBreak && $this->breakpoints->hasLineBreakpoints()) {
             $line     = $frame->getOpline()->getLine();
             $matching = $this->breakpoints->atLine($decision->file, $line);
+
+            // The frame's locals are materialized at most once per statement, and only
+            // when a breakpoint on this very line actually carries a condition
+            $locals = null;
             foreach ($matching as $breakpoint) {
+                if ($breakpoint->condition !== null) {
+                    $locals ??= $this->context->localsOf($frame);
+                    if (!$this->conditionHolds($breakpoint, $locals)) {
+                        continue;
+                    }
+                }
+                // A "hit" is a location + condition match; the hit condition then decides
+                // whether this hit suspends the debuggee
                 $breakpoint->hitCount++;
-                $shouldBreak = true;
+                if ($breakpoint->hitConditionSatisfied()) {
+                    $shouldBreak = true;
+                }
             }
         }
 
         if ($shouldBreak) {
             $session->enterBreak($frame);
         }
+    }
+
+    /**
+     * Evaluates a breakpoint condition; a broken condition never suspends the debuggee
+     *
+     * @param array<string, mixed> $locals
+     */
+    private function conditionHolds(Breakpoint $breakpoint, array $locals): bool
+    {
+        $condition = (string) $breakpoint->condition;
+        $result    = $this->evaluator->evaluate($condition, $locals);
+        if (!$result->ok) {
+            // A condition that does not parse or throws is a user error, not a debuggee
+            // one: report it to the log and leave the program running
+            $this->log->error(sprintf(
+                'Breakpoint #%d condition failed (%s): %s',
+                $breakpoint->id,
+                $condition,
+                (string) $result->error,
+            ));
+
+            return false;
+        }
+
+        return $result->isTruthy();
     }
 }

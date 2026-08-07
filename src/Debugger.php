@@ -23,6 +23,7 @@ use ZDebug\Protocol\DbgpConnection;
 use ZDebug\Protocol\FileUri;
 use ZDebug\Protocol\ResponseBuilder;
 use ZDebug\Runtime\ZDebugModule;
+use ZDebug\Session\ConditionEvaluator;
 use ZDebug\Session\DebugSession;
 use ZDebug\Session\Features;
 use ZDebug\Stepping\StepController;
@@ -56,6 +57,7 @@ final class Debugger
         private readonly StepController $stepper,
         private readonly StackCollector $stackCollector,
         private readonly StatementHook $statementHook,
+        private readonly ContextProvider $context,
         private readonly ThrowHook $throwHook,
     ) {}
 
@@ -82,10 +84,11 @@ final class Debugger
         $breakpoints = new BreakpointRegistry();
         $stepper     = new StepController();
         $collector   = new StackCollector($gate);
-        $hook        = new StatementHook($gate, $breakpoints, $stepper, $log);
+        $context     = new ContextProvider();
+        $hook        = new StatementHook($gate, $breakpoints, $stepper, $log, $context, new ConditionEvaluator());
         $throwHook   = new ThrowHook($breakpoints, $log);
 
-        $debugger       = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $throwHook);
+        $debugger       = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $context, $throwHook);
         self::$instance = $debugger;
 
         if ($config->isEnabled()) {
@@ -198,7 +201,7 @@ final class Debugger
             new ResponseBuilder(),
             new Features($languageVersion),
             $this->breakpoints,
-            new ContextProvider(),
+            $this->context,
             $this->stackCollector,
             $this->stepper,
             $this->log,

@@ -59,7 +59,7 @@ final class DebugSession
         private readonly Log $log,
     ) {
         $this->parser     = new CommandParser();
-        $this->dispatcher = new CommandDispatcher($this, $features, $breakpoints, $context, $xml);
+        $this->dispatcher = new CommandDispatcher($this, $features, $breakpoints, $context, $xml, new ConditionEvaluator());
     }
 
     /**

@@ -37,6 +37,7 @@ final class CommandDispatcher
         private readonly BreakpointRegistry $breakpoints,
         private readonly ContextProvider $context,
         private readonly ResponseBuilder $xml,
+        private readonly ConditionEvaluator $evaluator,
     ) {}
 
     public function dispatch(Command $command): DispatchResult
@@ -57,11 +58,13 @@ final class CommandDispatcher
             'feature_get'       => $this->featureGet($command),
             'feature_set'       => $this->featureSet($command),
             'breakpoint_set'    => $this->breakpointSet($command),
+            'breakpoint_get'    => $this->breakpointGet($command),
             'breakpoint_remove' => $this->breakpointRemove($command),
             'breakpoint_list'   => $this->breakpointList($command),
             'stack_get'         => $this->stackGet($command),
             'context_names'     => $this->contextNames($command),
             'context_get'       => $this->contextGet($command),
+            'eval'              => $this->evaluate($command),
             'run'               => DispatchResult::continuation(ResumeMode::Run),
             'step_into'         => DispatchResult::continuation(ResumeMode::StepInto),
             'step_over'         => DispatchResult::continuation(ResumeMode::StepOver),
@@ -113,7 +116,15 @@ final class CommandDispatcher
         }
 
         $enabled = ($command->argument('s', 'enabled')) !== 'disabled';
-        $id      = $this->breakpoints->nextId();
+
+        // -h / -o: break only on the n-th (or every n-th) hit
+        $hitValue     = max(0, $command->intArgument('h', 0) ?? 0);
+        $hitCondition = (string) $command->argument('o', Breakpoint::HIT_GREATER_OR_EQUAL);
+        if (!in_array($hitCondition, Breakpoint::HIT_CONDITIONS, true)) {
+            return $this->error($command, ErrorCode::BREAKPOINT_INVALID, "Unsupported hit condition '{$hitCondition}'");
+        }
+
+        $id = $this->breakpoints->nextId();
 
         if ($type === Breakpoint::TYPE_EXCEPTION) {
             $this->breakpoints->add(new Breakpoint(
@@ -121,6 +132,8 @@ final class CommandDispatcher
                 type: Breakpoint::TYPE_EXCEPTION,
                 enabled: $enabled,
                 exceptionName: $command->argument('x'),
+                hitValue: $hitValue,
+                hitCondition: $hitCondition,
             ));
 
             return $this->breakpointAck($command, $id, $enabled);
@@ -141,6 +154,8 @@ final class CommandDispatcher
             line: $line,
             condition: $condition !== '' ? $condition : null,
             temporary: $command->argument('r') === '1',
+            hitValue: $hitValue,
+            hitCondition: $hitCondition,
         ));
 
         return $this->breakpointAck($command, $id, $enabled);
@@ -165,29 +180,66 @@ final class CommandDispatcher
         return $this->reply($command, []);
     }
 
+    private function breakpointGet(Command $command): DispatchResult
+    {
+        $id         = $command->intArgument('d');
+        $breakpoint = $id !== null ? $this->breakpoints->get($id) : null;
+        if ($breakpoint === null) {
+            return $this->error($command, ErrorCode::BREAKPOINT_DOES_NOT_EXIST, 'No such breakpoint');
+        }
+
+        return DispatchResult::reply($this->xml->response(
+            $command->name,
+            $command->transactionId,
+            [],
+            self::breakpointElement($breakpoint),
+        ));
+    }
+
     private function breakpointList(Command $command): DispatchResult
     {
         $body = '';
         foreach ($this->breakpoints->all() as $breakpoint) {
-            $attributes = [
-                'id'       => (string) $breakpoint->id,
-                'type'     => $breakpoint->type,
-                'state'    => $breakpoint->state(),
-                'resolved' => 'resolved',
-            ];
-            if ($breakpoint->file !== null) {
-                $attributes['filename'] = FileUri::fromPath($breakpoint->file);
-            }
-            if ($breakpoint->line !== null) {
-                $attributes['lineno'] = (string) $breakpoint->line;
-            }
-            if ($breakpoint->exceptionName !== null) {
-                $attributes['exception'] = $breakpoint->exceptionName;
-            }
-            $body .= '<breakpoint ' . ResponseBuilder::attributes($attributes) . '/>';
+            $body .= self::breakpointElement($breakpoint);
         }
 
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+    }
+
+    /**
+     * Renders one <breakpoint> element, including hit bookkeeping and the condition
+     *
+     * hit_count / hit_value / hit_condition are what an IDE needs to render a hit-limited
+     * breakpoint; the condition of a conditional breakpoint is returned base64-encoded in
+     * the <expression> child, as the DBGp spec prescribes for user-supplied source.
+     */
+    private static function breakpointElement(Breakpoint $breakpoint): string
+    {
+        $attributes = [
+            'id'       => (string) $breakpoint->id,
+            'type'     => $breakpoint->type,
+            'state'    => $breakpoint->state(),
+            'resolved' => 'resolved',
+        ];
+        if ($breakpoint->file !== null) {
+            $attributes['filename'] = FileUri::fromPath($breakpoint->file);
+        }
+        if ($breakpoint->line !== null) {
+            $attributes['lineno'] = (string) $breakpoint->line;
+        }
+        if ($breakpoint->exceptionName !== null) {
+            $attributes['exception'] = $breakpoint->exceptionName;
+        }
+        $attributes['hit_count']     = (string) $breakpoint->hitCount;
+        $attributes['hit_value']     = (string) $breakpoint->hitValue;
+        $attributes['hit_condition'] = $breakpoint->hitCondition;
+
+        $rendered = '<breakpoint ' . ResponseBuilder::attributes($attributes);
+        if ($breakpoint->condition === null) {
+            return $rendered . '/>';
+        }
+
+        return $rendered . '><expression><![CDATA[' . base64_encode($breakpoint->condition) . ']]></expression></breakpoint>';
     }
 
     private function stackGet(Command $command): DispatchResult
@@ -238,6 +290,60 @@ final class CommandDispatcher
         ], $body));
     }
 
+    /**
+     * eval: evaluates an expression in a suspended frame and returns the result
+     *
+     * The expression arrives base64-encoded in the data part; -d selects the stack frame
+     * (0, the innermost, by default). Evaluation is read-only - writing back to the frame
+     * is out of scope - and can never throw: ConditionEvaluator turns every failure into
+     * DBGp error 206, because this runs inside the FFI statement callback.
+     */
+    private function evaluate(Command $command): DispatchResult
+    {
+        $expression = $command->data ?? '';
+        if (trim($expression) === '') {
+            return $this->error($command, ErrorCode::INVALID_EXPRESSION, 'eval requires an expression in the data part');
+        }
+
+        $depth = $command->intArgument('d', 0) ?? 0;
+        $scope = $this->evaluationScope($depth);
+        if ($scope === null) {
+            return $this->error($command, ErrorCode::STACK_DEPTH_INVALID, "No stack frame at depth {$depth}");
+        }
+
+        $result = $this->evaluator->evaluate($expression, $scope);
+        if (!$result->ok) {
+            return $this->error($command, ErrorCode::EVAL_FAILED, (string) $result->error);
+        }
+
+        $body = $this->propertySerializer()->serialize($expression, $expression, $result->value);
+
+        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
+            'success' => '1',
+        ], $body));
+    }
+
+    /**
+     * Builds the variable scope an eval runs in, or null when the depth is out of range
+     *
+     * With nothing suspended (the `starting` and `stopping` states, where the IDE may still
+     * probe a watch expression) there are no frames at all and the expression is evaluated
+     * against an EMPTY scope rather than rejected, so constant expressions keep working.
+     * Once a stack IS suspended, an out-of-range -d is a real client error and reported as
+     * such - exactly like context_get.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function evaluationScope(int $depth): ?array
+    {
+        $frame = $this->session->frameAtLevel($depth);
+        if ($frame !== null) {
+            return $this->context->variables($frame, ContextProvider::CONTEXT_LOCALS);
+        }
+
+        return $this->session->suspendedStack() === [] ? [] : null;
+    }
+
     private function stop(Command $command): DispatchResult
     {
         return DispatchResult::terminate($this->xml->response($command->name, $command->transactionId, [
@@ -285,7 +391,8 @@ final class CommandDispatcher
     {
         // feature_get is also used to probe command availability; answer the ones we handle
         return in_array($name, [
-            'break', 'eval', 'stdout', 'stderr', 'breakpoint_set', 'context_get', 'stack_get',
+            'break', 'eval', 'stdout', 'stderr', 'breakpoint_set', 'breakpoint_get', 'breakpoint_list',
+            'breakpoint_remove', 'context_get', 'context_names', 'stack_get',
             'step_into', 'step_over', 'step_out', 'run', 'stop', 'detach', 'status', 'source',
         ], true);
     }
