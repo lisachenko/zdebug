@@ -48,6 +48,20 @@ final class ContextProvider
     }
 
     /**
+     * Materializes the locals of a live frame, keyed as '$name'
+     *
+     * Used by the statement hook to build the scope a breakpoint condition is evaluated
+     * in, where no StackFrame has been collected yet. Only the closure-safe frame API is
+     * touched (getLocalVariables() / getThis()), never getFunction().
+     *
+     * @return array<string, mixed>
+     */
+    public function localsOf(ExecutionData $execution): array
+    {
+        return $this->locals($execution);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function locals(ExecutionData $execution): array

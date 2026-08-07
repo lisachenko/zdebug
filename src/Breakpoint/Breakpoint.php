@@ -18,12 +18,28 @@ namespace ZDebug\Breakpoint;
  * The PoC supports line breakpoints (with an optional condition, evaluated in the
  * frame) and exception breakpoints (matched by class name). $file is the resolved
  * filesystem path; the DBGp file:// URI is reconstructed on the way out.
+ *
+ * $hitCount counts the times the breakpoint actually matched (location plus condition);
+ * $hitValue / $hitCondition then decide whether such a match suspends the debuggee, per
+ * the DBGp `-h` / `-o` arguments.
  */
 final class Breakpoint
 {
     public const string TYPE_LINE      = 'line';
     public const string TYPE_CONDITION = 'conditional';
     public const string TYPE_EXCEPTION = 'exception';
+
+    /** Break from the n-th hit onwards (the DBGp default) */
+    public const string HIT_GREATER_OR_EQUAL = '>=';
+
+    /** Break on the n-th hit only */
+    public const string HIT_EQUAL = '==';
+
+    /** Break on every n-th hit */
+    public const string HIT_MULTIPLE = '%';
+
+    /** @var list<string> The hit conditions DBGp defines */
+    public const array HIT_CONDITIONS = [self::HIT_GREATER_OR_EQUAL, self::HIT_EQUAL, self::HIT_MULTIPLE];
 
     public function __construct(
         public readonly int $id,
@@ -35,6 +51,8 @@ final class Breakpoint
         public readonly ?string $exceptionName = null,
         public readonly bool $temporary = false,
         public int $hitCount = 0,
+        public readonly int $hitValue = 0,
+        public readonly string $hitCondition = self::HIT_GREATER_OR_EQUAL,
     ) {}
 
     public function isLineType(): bool
@@ -45,5 +63,24 @@ final class Breakpoint
     public function state(): string
     {
         return $this->enabled ? 'enabled' : 'disabled';
+    }
+
+    /**
+     * Whether the current $hitCount satisfies the configured hit condition
+     *
+     * A hit value of zero (the default, and what an IDE sends when the user did not ask
+     * for a hit condition) means "every hit counts".
+     */
+    public function hitConditionSatisfied(): bool
+    {
+        if ($this->hitValue <= 0) {
+            return true;
+        }
+
+        return match ($this->hitCondition) {
+            self::HIT_EQUAL    => $this->hitCount                   === $this->hitValue,
+            self::HIT_MULTIPLE => $this->hitCount % $this->hitValue === 0,
+            default            => $this->hitCount >= $this->hitValue,
+        };
     }
 }

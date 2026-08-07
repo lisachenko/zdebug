@@ -213,6 +213,108 @@ final class DbgpSessionTest extends TestCase
         $this->assertChildFinishedCleanly();
     }
 
+    public function testAConditionalBreakpointWhoseConditionIsFalseNeverBreaks(): void
+    {
+        $ide      = new FakeIde(timeoutSeconds: 10.0);
+        $loopPath = realpath(__DIR__ . '/fixtures/loop.php');
+        $this->assertIsString($loopPath);
+
+        $this->spawnChild($ide->port(), entry: 'loop-entry.php');
+        $ide->accept();
+        $ide->receive(); // <init>
+
+        // $i only ever runs 1..4, so this condition can never hold
+        $bpLine = $this->lineOf($loopPath, '$step  = $i * 10;');
+        $set    = $this->conditionalBreakpoint($ide, $loopPath, $bpLine, '$i === 99');
+        $this->assertSame('resolved', (string) $set['resolved']);
+
+        // ... and the debuggee must run straight to the end instead of suspending
+        $this->assertSame('stopping', (string) $this->command($ide, 'run')['status']);
+
+        $list = $this->command($ide, 'breakpoint_list');
+        $this->assertSame('conditional', (string) $list->breakpoint[0]['type']);
+        $this->assertSame('0', (string) $list->breakpoint[0]['hit_count'], 'a false condition is not a hit');
+        $this->assertSame('$i === 99', base64_decode((string) $list->breakpoint[0]->expression));
+
+        $this->command($ide, 'stop');
+        $ide->close();
+        $this->assertChildFinishedCleanly(['LOOP DONE', 'SUM=100']);
+    }
+
+    public function testAConditionalBreakpointBreaksOnTheIterationWhereTheConditionHolds(): void
+    {
+        $ide      = new FakeIde(timeoutSeconds: 10.0);
+        $loopPath = realpath(__DIR__ . '/fixtures/loop.php');
+        $this->assertIsString($loopPath);
+
+        $this->spawnChild($ide->port(), entry: 'loop-entry.php');
+        $ide->accept();
+        $ide->receive(); // <init>
+
+        $bpLine = $this->lineOf($loopPath, '$step  = $i * 10;');
+        $set    = $this->conditionalBreakpoint($ide, $loopPath, $bpLine, '$i === 3');
+
+        $break = $this->command($ide, 'run');
+        $this->assertSame('break', (string) $break['status']);
+
+        $top = $this->command($ide, 'stack_get')->stack[0];
+        $this->assertSame((string) $bpLine, (string) $top['lineno']);
+        $this->assertStringContainsString('accumulate', (string) $top['where']);
+
+        // Suspended on the third pass: $total already carries 10 + 20
+        $locals = $this->properties($this->command($ide, 'context_get -c 0 -d 0'));
+        $this->assertSame('3', $locals['$i'] ?? null);
+        $this->assertSame('30', $locals['$total'] ?? null);
+
+        // Only the matching iteration counts as a hit
+        $reported = $this->command($ide, "breakpoint_get -d {$set['id']}");
+        $this->assertSame('1', (string) $reported->breakpoint['hit_count']);
+        $this->assertSame('$i === 3', base64_decode((string) $reported->breakpoint->expression));
+
+        $this->command($ide, "breakpoint_remove -d {$set['id']}");
+        $this->assertSame('stopping', (string) $this->command($ide, 'run')['status']);
+        $this->command($ide, 'stop');
+
+        $ide->close();
+        $this->assertChildFinishedCleanly(['LOOP DONE', 'SUM=100']);
+    }
+
+    public function testAHitConditionSkipsTheFirstPassThroughTheLine(): void
+    {
+        $ide      = new FakeIde(timeoutSeconds: 10.0);
+        $loopPath = realpath(__DIR__ . '/fixtures/loop.php');
+        $this->assertIsString($loopPath);
+
+        $this->spawnChild($ide->port(), entry: 'loop-entry.php');
+        $ide->accept();
+        $ide->receive(); // <init>
+
+        $bpLine = $this->lineOf($loopPath, '$step  = $i * 10;');
+        $set    = $this->command($ide, "breakpoint_set -t line -f file://{$loopPath} -n {$bpLine} -h 2 -o >=");
+
+        // First pass is counted but not broken on; the second one suspends
+        $this->assertSame('break', (string) $this->command($ide, 'run')['status']);
+        $locals = $this->properties($this->command($ide, 'context_get -c 0 -d 0'));
+        $this->assertSame('2', $locals['$i'] ?? null, 'the first iteration must not break');
+
+        $reported = $this->command($ide, "breakpoint_get -d {$set['id']}");
+        $this->assertSame('2', (string) $reported->breakpoint['hit_count']);
+        $this->assertSame('2', (string) $reported->breakpoint['hit_value']);
+        $this->assertSame('>=', (string) $reported->breakpoint['hit_condition']);
+
+        // ">=" keeps breaking on every later pass
+        $this->assertSame('break', (string) $this->command($ide, 'run')['status']);
+        $locals = $this->properties($this->command($ide, 'context_get -c 0 -d 0'));
+        $this->assertSame('3', $locals['$i'] ?? null);
+
+        $this->command($ide, "breakpoint_remove -d {$set['id']}");
+        $this->assertSame('stopping', (string) $this->command($ide, 'run')['status']);
+        $this->command($ide, 'stop');
+
+        $ide->close();
+        $this->assertChildFinishedCleanly(['LOOP DONE', 'SUM=100']);
+    }
+
     public function testRunsUndebuggedWhenIdeIsUnreachable(): void
     {
         // No FakeIde listening: the debuggee must degrade silently and finish normally
@@ -222,14 +324,14 @@ final class DbgpSessionTest extends TestCase
         $this->assertChildFinishedCleanly();
     }
 
-    private function spawnChild(int $port, int $connectTimeoutMs = 2000): void
+    private function spawnChild(int $port, int $connectTimeoutMs = 2000, string $entry = 'entry.php'): void
     {
         $command = [
             PHP_BINARY,
             '-d', 'ffi.enable=1',
             '-d', 'zend.assertions=1',
             '-d', 'opcache.jit=off',
-            __DIR__ . '/fixtures/entry.php',
+            __DIR__ . '/fixtures/' . $entry,
         ];
         $env = [
             'ZDEBUG_CLIENT_HOST'        => '127.0.0.1',
@@ -246,7 +348,12 @@ final class DbgpSessionTest extends TestCase
         $this->pipes   = $pipes;
     }
 
-    private function assertChildFinishedCleanly(): void
+    /**
+     * Asserts the debuggee ran to completion, printing everything it was supposed to
+     *
+     * @param list<string> $expectedOutput markers the fixture prints on a full, clean run
+     */
+    private function assertChildFinishedCleanly(array $expectedOutput = ['APP DONE', 'RESULT=35']): void
     {
         $stdout = $this->drain($this->pipes[1]);
         $stderr = $this->drain($this->pipes[2]);
@@ -256,8 +363,9 @@ final class DbgpSessionTest extends TestCase
 
         $report = "STDOUT:\n{$stdout}\nSTDERR:\n{$stderr}";
         $this->assertSame(0, $exit, "Child exited non-zero\n{$report}");
-        $this->assertStringContainsString('APP DONE', $stdout, $report);
-        $this->assertStringContainsString('RESULT=35', $stdout, $report);
+        foreach ($expectedOutput as $marker) {
+            $this->assertStringContainsString($marker, $stdout, $report);
+        }
         $this->assertStringNotContainsStringIgnoringCase('Fatal error', $stderr, $report);
     }
 
@@ -276,6 +384,17 @@ final class DbgpSessionTest extends TestCase
         $arguments = $depth !== null ? "-d {$depth} " : '';
 
         return $this->command($ide, 'eval ' . $arguments . '-- ' . base64_encode($expression));
+    }
+
+    /**
+     * Sets a conditional line breakpoint (the condition travels in the data part)
+     */
+    private function conditionalBreakpoint(FakeIde $ide, string $file, int $line, string $condition): \SimpleXMLElement
+    {
+        return $this->command(
+            $ide,
+            "breakpoint_set -t conditional -f file://{$file} -n {$line} -- " . base64_encode($condition),
+        );
     }
 
     /**
