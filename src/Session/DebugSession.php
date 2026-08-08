@@ -119,6 +119,18 @@ final class DebugSession
         }
     }
 
+    /**
+     * Drops the IDE connection and marks the session stopped (idempotent)
+     *
+     * Unlike onScriptEnd() this exchanges no messages: it is the teardown path for a
+     * debugger that is going away mid-flight, where the debuggee must simply run on.
+     */
+    public function close(): void
+    {
+        $this->status = SessionStatus::Stopped;
+        $this->connection->close();
+    }
+
     public function status(): SessionStatus
     {
         return $this->status;
