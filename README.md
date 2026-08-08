@@ -123,6 +123,7 @@ zdebug's **native** settings (these take precedence over any Xdebug settings abo
 | `ZDEBUG_IDEKEY` | `zdebug` | Session key shown to the IDE |
 | `ZDEBUG_PATH_FILTER` | *(all)* | `:`-separated path prefixes to instrument — scope this to your code for speed |
 | `ZDEBUG_CONNECT_TIMEOUT_MS` | `200` | If the IDE is not listening, the app runs undebugged |
+| `ZDEBUG_READ_TIMEOUT_MS` | `300000` | How long a suspended script waits for the next IDE command before deciding the IDE is gone and running on undebugged. `0` waits forever, as Xdebug does |
 | `ZDEBUG_LOG` | *(none)* | Path to an optional diagnostics log |
 
 Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_*` → an explicit array passed to `Debugger::attach([...])`.
