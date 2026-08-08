@@ -13,6 +13,9 @@ declare(strict_types=1);
 namespace ZDebug\Tests\Protocol;
 
 use PHPUnit\Framework\TestCase;
+use ZDebug\Breakpoint\Breakpoint;
+use ZDebug\Breakpoint\BreakpointType;
+use ZDebug\Protocol\EngineIdentity;
 use ZDebug\Protocol\ErrorCode;
 use ZDebug\Protocol\ResponseBuilder;
 
@@ -134,6 +137,131 @@ final class ResponseBuilderTest extends TestCase
     {
         $xml = $this->builder->response('status', '1');
         $this->assertStringStartsWith(ResponseBuilder::PROLOG, $xml);
+    }
+
+    public function testInitAndFeaturesAgreeOnTheEngineIdentity(): void
+    {
+        $doc = $this->loadXml($this->builder->init('file:///app/entry.php', 'phpstorm', 1, '8.4.19'));
+
+        $this->assertSame(EngineIdentity::LANGUAGE, $doc->getAttribute('language'));
+        $this->assertSame(EngineIdentity::PROTOCOL_VERSION, $doc->getAttribute('protocol_version'));
+        $engine = $doc->getElementsByTagName('engine')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $engine);
+        $this->assertSame(EngineIdentity::NAME, $engine->textContent);
+        $this->assertSame(EngineIdentity::VERSION, $engine->getAttribute('version'));
+        $this->assertStringContainsString('encoding="' . EngineIdentity::ENCODING . '"', ResponseBuilder::PROLOG);
+    }
+
+    public function testFeatureResponseCarriesTheValueAsElementText(): void
+    {
+        $doc = $this->loadXml($this->builder->feature('3', 'max_depth', true, '2'));
+
+        $this->assertSame('feature_get', $doc->getAttribute('command'));
+        $this->assertSame('max_depth', $doc->getAttribute('feature_name'));
+        $this->assertSame('1', $doc->getAttribute('supported'));
+        $this->assertSame('2', $doc->textContent);
+    }
+
+    public function testFeatureResponseEscapesAHostileValue(): void
+    {
+        $doc = $this->loadXml($this->builder->feature('3', 'idekey', false, 'a & b <c>'));
+
+        $this->assertSame('0', $doc->getAttribute('supported'));
+        $this->assertSame('a & b <c>', $doc->textContent);
+    }
+
+    public function testLineBreakpointElementIsSelfClosingAndCarriesHitBookkeeping(): void
+    {
+        $breakpoint = new Breakpoint(
+            id: 3,
+            type: BreakpointType::Line,
+            file: '/app/a.php',
+            line: 17,
+            hitCount: 2,
+            hitValue: 5,
+            hitCondition: Breakpoint::HIT_MULTIPLE,
+        );
+
+        $element = $this->elementOf($this->builder->response('breakpoint_get', '1', [], ResponseBuilder::breakpoint($breakpoint)), 'breakpoint');
+        $this->assertSame('3', $element->getAttribute('id'));
+        $this->assertSame('line', $element->getAttribute('type'));
+        $this->assertSame('enabled', $element->getAttribute('state'));
+        $this->assertSame('resolved', $element->getAttribute('resolved'));
+        $this->assertSame('file:///app/a.php', $element->getAttribute('filename'));
+        $this->assertSame('17', $element->getAttribute('lineno'));
+        $this->assertSame('2', $element->getAttribute('hit_count'));
+        $this->assertSame('5', $element->getAttribute('hit_value'));
+        $this->assertSame('%', $element->getAttribute('hit_condition'));
+        $this->assertFalse($element->hasChildNodes());
+    }
+
+    /**
+     * DBGp returns user-supplied source base64-encoded, so an expression full of XML
+     * metacharacters cannot break the document
+     */
+    public function testConditionalBreakpointCarriesABase64ExpressionChild(): void
+    {
+        $breakpoint = new Breakpoint(
+            id: 4,
+            type: BreakpointType::Conditional,
+            enabled: false,
+            file: '/app/a.php',
+            line: 8,
+            condition: '$i < 3 && $name === "a&b"',
+        );
+
+        $element = $this->elementOf($this->builder->response('breakpoint_list', '1', [], ResponseBuilder::breakpoint($breakpoint)), 'breakpoint');
+        $this->assertSame('conditional', $element->getAttribute('type'));
+        $this->assertSame('disabled', $element->getAttribute('state'));
+        $this->assertSame('$i < 3 && $name === "a&b"', base64_decode($element->textContent));
+    }
+
+    public function testExceptionBreakpointCarriesTheClassAndNoLocation(): void
+    {
+        $breakpoint = new Breakpoint(id: 5, type: BreakpointType::Exception, exceptionName: 'DomainException');
+
+        $element = $this->elementOf($this->builder->response('breakpoint_get', '1', [], ResponseBuilder::breakpoint($breakpoint)), 'breakpoint');
+        $this->assertSame('exception', $element->getAttribute('type'));
+        $this->assertSame('DomainException', $element->getAttribute('exception'));
+        $this->assertFalse($element->hasAttribute('filename'));
+        $this->assertFalse($element->hasAttribute('lineno'));
+    }
+
+    public function testStackFrameElementDescribesOneCallStackEntry(): void
+    {
+        $body = ResponseBuilder::stackFrame(1, 'App\\Service->run', 'file:///app/a.php', 42);
+
+        $element = $this->elementOf($this->builder->response('stack_get', '1', [], $body), 'stack');
+        $this->assertSame('1', $element->getAttribute('level'));
+        $this->assertSame('App\\Service->run', $element->getAttribute('where'));
+        $this->assertSame('file', $element->getAttribute('type'));
+        $this->assertSame('file:///app/a.php', $element->getAttribute('filename'));
+        $this->assertSame('42', $element->getAttribute('lineno'));
+    }
+
+    public function testContextNamesRendersOneElementPerContext(): void
+    {
+        $body = ResponseBuilder::contextNames(['Locals' => 0, 'Superglobals' => 1]);
+        $doc  = $this->loadXml($this->builder->response('context_names', '1', [], $body));
+
+        $contexts = $doc->getElementsByTagName('context');
+        $this->assertSame(2, $contexts->length);
+        $first = $contexts->item(0);
+        $last  = $contexts->item(1);
+        $this->assertInstanceOf(\DOMElement::class, $first);
+        $this->assertInstanceOf(\DOMElement::class, $last);
+        $this->assertSame('Locals', $first->getAttribute('name'));
+        $this->assertSame('0', $first->getAttribute('id'));
+        $this->assertSame('Superglobals', $last->getAttribute('name'));
+        $this->assertSame('1', $last->getAttribute('id'));
+    }
+
+    private function elementOf(string $xml, string $tagName): \DOMElement
+    {
+        $element = $this->loadXml($xml)->getElementsByTagName($tagName)->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $element);
+
+        return $element;
     }
 
     private function breakMessageOf(\DOMElement $response): \DOMElement

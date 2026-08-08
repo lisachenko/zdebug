@@ -12,13 +12,18 @@ declare(strict_types=1);
 
 namespace ZDebug\Session;
 
+use ZDebug\Breakpoint\BreakpointType;
+use ZDebug\Protocol\EngineIdentity;
+
 /**
  * DBGp feature store with Xdebug-compatible defaults
  *
  * Backs feature_get/feature_set. Some features are read-only descriptions of the
- * engine (language_name, protocol_version); others are IDE-tunable knobs the debugger
- * honors (max_depth, max_children, max_data). Unknown names are reported unsupported
- * rather than rejected, so an IDE probing capabilities degrades gracefully.
+ * engine (language_name, protocol_version) and are taken from EngineIdentity so they
+ * cannot contradict the <init> packet; others are IDE-tunable knobs the debugger honors
+ * (max_depth, max_children, max_data), for which DEFAULTS is the one place the shipped
+ * values live. Unknown names are reported unsupported rather than rejected, so an IDE
+ * probing capabilities degrades gracefully.
  *
  * @see https://xdebug.org/docs/dbgp#feature-names
  */
@@ -39,28 +44,32 @@ final class Features
         'breakpoint_details'   => true,
     ];
 
+    /** @var array<string, string> The values every session starts from */
+    private const array DEFAULTS = [
+        'language_name'             => EngineIdentity::LANGUAGE,
+        'language_supports_threads' => '0',
+        'protocol_version'          => EngineIdentity::PROTOCOL_VERSION,
+        'encoding'                  => EngineIdentity::ENCODING,
+        'data_encoding'             => EngineIdentity::DATA_ENCODING,
+        'supports_async'            => '0',
+        'supports_postmortem'       => '0',
+        'multiple_sessions'         => '0',
+        'max_children'              => '100',
+        'max_data'                  => '1024',
+        'max_depth'                 => '1',
+        'resolved_breakpoints'      => '1',
+        'breakpoint_details'        => '0',
+        'show_hidden'               => '0',
+        'extended_properties'       => '0',
+        'notify_ok'                 => '0',
+    ];
+
     public function __construct(string $languageVersion)
     {
-        $this->values = [
-            'language_name'             => 'PHP',
-            'language_version'          => $languageVersion,
-            'language_supports_threads' => '0',
-            'protocol_version'          => '1.0',
-            'encoding'                  => 'iso-8859-1',
-            'data_encoding'             => 'base64',
-            'supports_async'            => '0',
-            'supports_postmortem'       => '0',
-            'breakpoint_types'          => 'line conditional exception',
-            'multiple_sessions'         => '0',
-            'max_children'              => '100',
-            'max_data'                  => '1024',
-            'max_depth'                 => '1',
-            'resolved_breakpoints'      => '1',
-            'breakpoint_details'        => '0',
-            'show_hidden'               => '0',
-            'extended_properties'       => '0',
-            'notify_ok'                 => '0',
-        ];
+        $this->values = array_merge(self::DEFAULTS, [
+            'language_version' => $languageVersion,
+            'breakpoint_types' => self::breakpointTypes(),
+        ]);
     }
 
     /**
@@ -76,11 +85,21 @@ final class Features
         return $this->values[$name] ?? null;
     }
 
-    public function getInt(string $name, int $default): int
+    /**
+     * Reads a numeric feature, falling back to the value zdebug ships with
+     *
+     * feature_set takes any string, so a client may store "auto" in max_depth; rather
+     * than propagate a nonsense limit into the property serializer, such a value (and an
+     * unknown feature name, which reads as 0) resolves back to the default.
+     */
+    public function getInt(string $name): int
     {
         $value = $this->values[$name] ?? null;
+        if (!is_numeric($value)) {
+            $value = self::DEFAULTS[$name] ?? '0';
+        }
 
-        return $value !== null && is_numeric($value) ? (int) $value : $default;
+        return is_numeric($value) ? (int) $value : 0;
     }
 
     /**
@@ -94,5 +113,16 @@ final class Features
         $this->values[$name] = $value;
 
         return true;
+    }
+
+    /**
+     * The space-separated `breakpoint_types` an IDE reads before offering breakpoint kinds
+     *
+     * Derived from BreakpointType, the same enum breakpoint_set validates -t against, so
+     * the advertised list cannot outgrow what the dispatcher will actually register.
+     */
+    private static function breakpointTypes(): string
+    {
+        return implode(' ', array_column(BreakpointType::cases(), 'value'));
     }
 }
