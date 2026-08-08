@@ -30,13 +30,13 @@ use ZDebug\Stepping\ResumeMode;
  * Every handler returns a DispatchResult; a command outside DbgpCommand answers error 4
  * and a handler that throws is turned into error 998 - the loop above never sees an
  * exception, because it runs inside the FFI statement callback where a throw is fatal.
- * Suspended state (stack, frames, status) is read from the DebugSession it serves;
+ * Suspended state (stack, frames, status) is read through the SuspendedState contract;
  * the response XML is built entirely by ResponseBuilder.
  */
 final class CommandDispatcher
 {
     public function __construct(
-        private readonly DebugSession $session,
+        private readonly SuspendedState $state,
         private readonly Features $features,
         private readonly BreakpointRegistry $breakpoints,
         private readonly ContextProvider $context,
@@ -84,7 +84,7 @@ final class CommandDispatcher
     private function status(Command $command): DispatchResult
     {
         return $this->reply($command, [
-            'status' => $this->session->status()->value,
+            'status' => $this->state->status()->value,
             'reason' => 'ok',
         ]);
     }
@@ -220,7 +220,7 @@ final class CommandDispatcher
     {
         $requested = $command->intArgument('d');
         $body      = '';
-        foreach ($this->session->suspendedStack() as $frame) {
+        foreach ($this->state->suspendedStack() as $frame) {
             if ($requested !== null && $frame->level !== $requested) {
                 continue;
             }
@@ -247,7 +247,7 @@ final class CommandDispatcher
     {
         $contextId = $command->intArgument('c', ContextProvider::CONTEXT_LOCALS) ?? ContextProvider::CONTEXT_LOCALS;
         $depth     = $command->intArgument('d', 0)                               ?? 0;
-        $frame     = $this->session->frameAtLevel($depth);
+        $frame     = $this->state->frameAtLevel($depth);
         if ($frame === null) {
             return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
         }
@@ -309,12 +309,12 @@ final class CommandDispatcher
      */
     private function evaluationScope(int $depth): ?array
     {
-        $frame = $this->session->frameAtLevel($depth);
+        $frame = $this->state->frameAtLevel($depth);
         if ($frame !== null) {
             return $this->context->variables($frame, ContextProvider::CONTEXT_LOCALS);
         }
 
-        return $this->session->suspendedStack() === [] ? [] : null;
+        return $this->state->suspendedStack() === [] ? [] : null;
     }
 
     private function stop(Command $command): DispatchResult
