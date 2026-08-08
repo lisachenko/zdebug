@@ -41,13 +41,13 @@ final class ConfigResolver
             ->merge(new Settings($overrides));
 
         return new Config(
-            clientHost: $settings->string(Settings::CLIENT_HOST, '127.0.0.1'),
-            clientPort: $settings->int(Settings::CLIENT_PORT, 9003),
-            ideKey: $settings->string(Settings::IDE_KEY, 'zdebug'),
-            pathFilter: $settings->stringList(Settings::PATH_FILTER),
-            connectTimeoutMs: $settings->int(Settings::CONNECT_TIMEOUT_MS, 200),
-            mode: $settings->string(Settings::MODE, 'debug'),
-            logFile: $settings->stringOrNull(Settings::LOG),
+            clientHost: $settings->string(Setting::ClientHost, '127.0.0.1'),
+            clientPort: $settings->int(Setting::ClientPort, 9003),
+            ideKey: $settings->string(Setting::IdeKey, 'zdebug'),
+            pathFilter: $settings->stringList(Setting::PathFilter),
+            connectTimeoutMs: $settings->int(Setting::ConnectTimeoutMs, 200),
+            mode: $settings->string(Setting::Mode, 'debug'),
+            logFile: $settings->stringOrNull(Setting::Log),
         );
     }
 
@@ -66,14 +66,14 @@ final class ConfigResolver
     {
         $settings = new Settings();
 
-        $settings->set(Settings::CLIENT_HOST, self::env('ZDEBUG_CLIENT_HOST'));
+        $settings->set(Setting::ClientHost, self::env('ZDEBUG_CLIENT_HOST'));
         $port = self::env('ZDEBUG_CLIENT_PORT');
-        $settings->set(Settings::CLIENT_PORT, $port !== null ? (int) $port : null);
-        $settings->set(Settings::IDE_KEY, self::env('ZDEBUG_IDEKEY') ?? self::env('DBGP_IDEKEY'));
+        $settings->set(Setting::ClientPort, $port !== null ? (int) $port : null);
+        $settings->set(Setting::IdeKey, self::env('ZDEBUG_IDEKEY') ?? self::env('DBGP_IDEKEY'));
         $timeout = self::env('ZDEBUG_CONNECT_TIMEOUT_MS');
-        $settings->set(Settings::CONNECT_TIMEOUT_MS, $timeout !== null ? (int) $timeout : null);
-        $settings->set(Settings::MODE, self::env('ZDEBUG_MODE'));
-        $settings->set(Settings::LOG, self::env('ZDEBUG_LOG'));
+        $settings->set(Setting::ConnectTimeoutMs, $timeout !== null ? (int) $timeout : null);
+        $settings->set(Setting::Mode, self::env('ZDEBUG_MODE'));
+        $settings->set(Setting::Log, self::env('ZDEBUG_LOG'));
 
         $pathFilter = self::env('ZDEBUG_PATH_FILTER');
         if ($pathFilter !== null && $pathFilter !== '') {
@@ -84,7 +84,7 @@ final class ConfigResolver
                     $prefixes[] = $normalized;
                 }
             }
-            $settings->set(Settings::PATH_FILTER, $prefixes);
+            $settings->set(Setting::PathFilter, $prefixes);
         }
 
         return $settings;

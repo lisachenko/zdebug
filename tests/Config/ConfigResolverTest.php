@@ -14,7 +14,7 @@ namespace ZDebug\Tests\Config;
 
 use PHPUnit\Framework\TestCase;
 use ZDebug\Config\ConfigResolver;
-use ZDebug\Config\Settings;
+use ZDebug\Config\Setting;
 use ZDebug\Config\XdebugCompat;
 
 final class ConfigResolverTest extends TestCase
@@ -101,7 +101,7 @@ final class ConfigResolverTest extends TestCase
         putenv('ZDEBUG_CLIENT_PORT=9999');
 
         $config = $this->resolver(['xdebug.mode' => 'debug', 'xdebug.client_port' => '9007'])
-            ->resolve([Settings::CLIENT_PORT => 9001]);
+            ->resolve([Setting::ClientPort->value => 9001]);
 
         $this->assertSame(9001, $config->clientPort);
     }

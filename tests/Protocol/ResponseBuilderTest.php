@@ -65,7 +65,7 @@ final class ResponseBuilderTest extends TestCase
 
     public function testErrorResponseCarriesCodeAndMessage(): void
     {
-        $xml = $this->builder->error('frobnicate', '9', ErrorCode::UNIMPLEMENTED, 'unimplemented');
+        $xml = $this->builder->error('frobnicate', '9', ErrorCode::Unimplemented, 'unimplemented');
         $doc = $this->loadXml($xml);
 
         $error = $doc->getElementsByTagName('error')->item(0);

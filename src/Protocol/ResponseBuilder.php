@@ -74,9 +74,9 @@ final class ResponseBuilder
     /**
      * Builds an error <response> carrying a DBGp error code and message
      */
-    public function error(string $command, string $transactionId, int $code, string $message): string
+    public function error(string $command, string $transactionId, ErrorCode $code, string $message): string
     {
-        $body = '<error code="' . $code . '"><message>' . self::escape($message) . '</message></error>';
+        $body = '<error code="' . $code->value . '"><message>' . self::escape($message) . '</message></error>';
 
         return $this->response($command, $transactionId, [], $body);
     }

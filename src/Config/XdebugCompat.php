@@ -63,11 +63,11 @@ final class XdebugCompat
         $port = $xdebugConfig['client_port'] ?? $this->iniString('xdebug.client_port');
         $log  = $xdebugConfig['log']         ?? $this->iniString('xdebug.log');
 
-        $settings->set(Settings::CLIENT_HOST, $host);
-        $settings->set(Settings::CLIENT_PORT, $port !== null ? (int) $port : null);
-        $settings->set(Settings::IDE_KEY, $this->resolveIdeKey($xdebugConfig));
-        $settings->set(Settings::LOG, $log);
-        $settings->set(Settings::MODE, $this->resolveMode($xdebugConfig));
+        $settings->set(Setting::ClientHost, $host);
+        $settings->set(Setting::ClientPort, $port !== null ? (int) $port : null);
+        $settings->set(Setting::IdeKey, $this->resolveIdeKey($xdebugConfig));
+        $settings->set(Setting::Log, $log);
+        $settings->set(Setting::Mode, $this->resolveMode($xdebugConfig));
 
         return $settings;
     }
