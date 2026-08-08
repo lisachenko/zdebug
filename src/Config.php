@@ -18,6 +18,11 @@ namespace ZDebug;
  * The layering of configuration sources (Xdebug ini/env, the ZDEBUG_* environment,
  * explicit overrides) lives in ZDebug\Config\ConfigResolver; this class is just the
  * resolved result, which keeps it trivially unit-testable.
+ *
+ * The promoted-property defaults below are the single source of truth for the built-in
+ * defaults: ConfigResolver reads them off a default-constructed instance instead of
+ * restating the literals, so `new Config()` and "nothing configured anywhere" agree by
+ * construction.
  */
 final class Config
 {
@@ -27,6 +32,9 @@ final class Config
      * @param string       $ideKey           Session key echoed to the IDE in the <init> packet
      * @param list<string> $pathFilter       Realpath prefixes whose code is observed; empty = observe everything
      * @param int          $connectTimeoutMs Connect timeout in milliseconds; on failure the app runs undebugged
+     * @param int          $readTimeoutMs    How long a suspended debuggee waits for the next IDE command
+     *                                       before treating the IDE as gone and running on undebugged;
+     *                                       0 (or less) waits forever, as Xdebug does
      * @param string       $mode             'debug' to arm the debugger, 'off' to become a no-op
      * @param string|null  $logFile          Absolute path for the diagnostics log, or null to disable
      */
@@ -36,6 +44,7 @@ final class Config
         public readonly string $ideKey = 'zdebug',
         public readonly array $pathFilter = [],
         public readonly int $connectTimeoutMs = 200,
+        public readonly int $readTimeoutMs = 300_000,
         public readonly string $mode = 'debug',
         public readonly ?string $logFile = null,
     ) {}

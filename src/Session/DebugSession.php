@@ -132,13 +132,14 @@ final class DebugSession implements SuspendedState
     }
 
     /**
-     * Closes the DBGp transport
+     * Drops the IDE connection and marks the session stopped (idempotent)
      *
-     * Idempotent and safe at any point of the lifecycle - including a session whose IDE
-     * already dropped the socket - so a teardown path can always call it unconditionally.
+     * Unlike onScriptEnd() this exchanges no messages: it is the teardown path for a
+     * debugger that is going away mid-flight, where the debuggee must simply run on.
      */
     public function close(): void
     {
+        $this->status = SessionStatus::Stopped;
         $this->connection->close();
     }
 
