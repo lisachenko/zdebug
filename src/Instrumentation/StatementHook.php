@@ -125,7 +125,8 @@ final class StatementHook
 
             // The frame's locals are materialized at most once per statement, and only
             // when a breakpoint on this very line actually carries a condition
-            $locals = null;
+            $locals    = null;
+            $triggered = [];
             foreach ($matching as $breakpoint) {
                 if ($breakpoint->condition !== null) {
                     $locals ??= $this->context->localsOf($frame);
@@ -138,8 +139,13 @@ final class StatementHook
                 $breakpoint->hitCount++;
                 if ($breakpoint->hitConditionSatisfied()) {
                     $shouldBreak = true;
+                    $triggered[] = $breakpoint;
                 }
             }
+
+            // A one-shot breakpoint (DBGp `-r 1`) is dropped before the debuggee suspends,
+            // so the IDE already sees it gone in breakpoint_list while it is stopped on it
+            $this->breakpoints->dropTemporary($triggered);
         }
 
         if ($shouldBreak) {

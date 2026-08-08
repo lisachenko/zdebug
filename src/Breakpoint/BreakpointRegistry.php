@@ -86,6 +86,25 @@ final class BreakpointRegistry
     }
 
     /**
+     * Drops the one-shot (DBGp `-r 1`) breakpoints among the ones that just triggered
+     *
+     * A temporary breakpoint is spent by the break it causes, not by the hit it records:
+     * a hit that a `-h`/`-o` hit condition filters out leaves it armed. Non-temporary
+     * breakpoints in the list are left untouched, so the hook can hand over everything
+     * that triggered without pre-filtering.
+     *
+     * @param list<Breakpoint> $triggered
+     */
+    public function dropTemporary(array $triggered): void
+    {
+        foreach ($triggered as $breakpoint) {
+            if ($breakpoint->temporary) {
+                $this->remove($breakpoint->id);
+            }
+        }
+    }
+
+    /**
      * Whether any file has a line breakpoint (fast global gate for the statement hook)
      */
     public function hasLineBreakpoints(): bool
