@@ -26,5 +26,6 @@ enum Setting: string
     case Mode             = 'mode';
     case PathFilter       = 'path_filter';
     case ConnectTimeoutMs = 'connect_timeout_ms';
+    case ReadTimeoutMs    = 'read_timeout_ms';
     case Log              = 'log';
 }

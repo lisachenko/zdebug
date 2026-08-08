@@ -21,6 +21,38 @@ final class PropertyFixture
     public string $label = 'x';
 }
 
+class VisibilityFixture
+{
+    public string $open      = 'public';
+    protected string $shared = 'protected';
+    private string $own      = 'private';
+    private string $shadowed = 'base';
+
+    /** Reading them from the class itself is exactly what a suspended frame's `eval` does */
+    public function describe(): string
+    {
+        return $this->own . $this->shared . $this->shadowed;
+    }
+}
+
+final class DerivedVisibilityFixture extends VisibilityFixture
+{
+    // Redeclares the parent's private slot: both live in the property table at once
+    private string $shadowed = 'derived';
+
+    public function describe(): string
+    {
+        return $this->shadowed;
+    }
+}
+
+final class UninitializedFixture
+{
+    public int $assigned = 1;
+
+    public string $never;
+}
+
 final class PropertySerializerTest extends TestCase
 {
     public function testIntScalarCarriesTypeAndBase64Value(): void
@@ -111,6 +143,56 @@ final class PropertySerializerTest extends TestCase
         $this->assertSame(2, $property->getElementsByTagName('property')->length);
     }
 
+    public function testPrivateAndProtectedPropertiesAreVisibleUnderTheirPlainNames(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('$o', '$o', new VisibilityFixture()));
+
+        // get_object_vars() from this scope would have shown only $open, while the same
+        // session's `eval` sees all three - context_get must not be the poorer view
+        $this->assertSame('4', $property->getAttribute('numchildren'));
+        $this->assertSame([
+            'open'     => 'public',
+            'shared'   => 'protected',
+            'own'      => 'private',
+            'shadowed' => 'base',
+        ], $this->children($property));
+    }
+
+    public function testChildFullNamesUseThePlainPropertyName(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('$o', '$o', new VisibilityFixture()));
+
+        $names = [];
+        foreach ($property->getElementsByTagName('property') as $child) {
+            $names[] = $child->getAttribute('fullname');
+        }
+        // The mangled "\0Class\0name" spelling would be both unusable and illegal in XML
+        $this->assertSame(['$o->open', '$o->shared', '$o->own', '$o->shadowed'], $names);
+    }
+
+    public function testAShadowedPrivatePropertyReportsTheMostDerivedDeclaration(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('$o', '$o', new DerivedVisibilityFixture()));
+
+        // Both slots exist in the property table; the one the object's own scope resolves
+        // to is the one DBGp can address under the single fullname `$o->shadowed`
+        $this->assertSame('derived', $this->children($property)['shadowed'] ?? null);
+        $this->assertSame('4', $property->getAttribute('numchildren'));
+    }
+
+    public function testUninitializedTypedPropertiesAreNotReported(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('$o', '$o', new UninitializedFixture()));
+
+        // A typed property with no value has no zval at all; inventing a null for it would
+        // misreport the debuggee's state
+        $this->assertSame(['assigned' => '1'], $this->children($property));
+    }
+
     public function testAnonymousClassNameDoesNotBreakWellFormedness(): void
     {
         // Anonymous class names embed a NUL byte, illegal in XML; the serializer must
@@ -121,6 +203,21 @@ final class PropertySerializerTest extends TestCase
         $property = $this->parse((new PropertySerializer())->serialize('$o', '$o', $object));
         $this->assertSame('object', $property->getAttribute('type'));
         $this->assertStringStartsWith('class@anonymous', $property->getAttribute('classname'));
+    }
+
+    /**
+     * The direct <property> children of a container, as name => decoded value
+     *
+     * @return array<string, string>
+     */
+    private function children(\DOMElement $property): array
+    {
+        $values = [];
+        foreach ($property->getElementsByTagName('property') as $child) {
+            $values[$child->getAttribute('name')] = base64_decode($child->textContent);
+        }
+
+        return $values;
     }
 
     private function parse(string $xml): \DOMElement

@@ -39,6 +39,10 @@ use ZEngine\System\Compiler;
  * run - so breakpoints set before the debuggee compiles take effect. If the IDE is not
  * listening, hooks stay in place but no session is created and the app runs at the
  * fast-path cost.
+ *
+ * Every step of that is best-effort. attach() runs from auto_prepend_file, ahead of the
+ * host application, and a debugger that cannot boot must cost the app its debugger and
+ * nothing else - so a failed boot rolls itself back, logs, and leaves no instance behind.
  */
 final class Debugger
 {
@@ -49,6 +53,9 @@ final class Debugger
     private ?ZDebugModule $module = null;
 
     private bool $attached = false;
+
+    /** Compiler options as boot() found them, kept so detach() can put them back */
+    private ?int $savedCompilerOptions = null;
 
     private function __construct(
         private readonly Config $config,
@@ -63,6 +70,10 @@ final class Debugger
 
     /**
      * Attaches the debugger (idempotent). Safe to call from an auto_prepend bootstrap.
+     *
+     * Always returns a Debugger, but only a successfully booted one becomes the process
+     * instance(): if arming the engine failed, the returned object is inert and the host
+     * application simply runs undebugged.
      *
      * @param Config|array<string, mixed>|null $config
      */
@@ -88,12 +99,13 @@ final class Debugger
         $hook        = new StatementHook($gate, $breakpoints, $stepper, $log, $context, new ConditionEvaluator());
         $throwHook   = new ThrowHook($breakpoints, $log);
 
-        $debugger       = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $context, $throwHook);
-        self::$instance = $debugger;
+        $debugger = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $context, $throwHook);
 
-        if ($config->isEnabled()) {
-            $debugger->boot();
+        if ($config->isEnabled() && !$debugger->boot()) {
+            // Booting failed and rolled itself back: publish nothing, stay out of the way
+            return $debugger;
         }
+        self::$instance = $debugger;
 
         return $debugger;
     }
@@ -112,25 +124,61 @@ final class Debugger
     }
 
     /**
-     * Tears down the hooks and session (primarily for tests)
+     * Undoes boot(), in reverse: uninstalls both engine hooks, puts the compiler options
+     * back the way boot() found them, and closes the IDE connection
+     *
+     * Idempotent, and used both by tests and to roll back a boot that threw halfway. Code
+     * already compiled with EXT_STMT oplines keeps them - restoring the options only stops
+     * further op_arrays from being instrumented - but with the hooks gone those oplines
+     * dispatch straight through the default handler.
      */
     public function detach(): void
     {
         // LIFO, mirroring the installation order in boot()
         $this->throwHook->uninstall();
         $this->statementHook->uninstall();
+        $this->restoreCompilerOptions();
+        $this->session?->close();
         $this->session  = null;
         $this->attached = false;
         self::$instance = null;
     }
 
-    private function boot(): void
+    /**
+     * Arms the engine and opens the session, reporting whether it fully succeeded
+     *
+     * Best-effort in the same way registerModule() is, and for a stronger reason: this
+     * runs before the host application's first statement, so a throwable escaping here
+     * would take down the very app the debugger exists to observe. Anything the failed
+     * attempt installed is rolled back before returning false.
+     */
+    private function boot(): bool
     {
         if ($this->attached) {
-            return;
+            return true;
         }
-        // isset() is false for the uninitialized typed static before Core::init()
-        if (!isset(Core::$compiler)) {
+        try {
+            $this->arm();
+
+            return true;
+        } catch (\Throwable $error) {
+            $this->log->exception($error);
+        }
+        try {
+            $this->detach();
+        } catch (\Throwable $error) {
+            $this->log->exception($error);
+        }
+
+        return false;
+    }
+
+    /**
+     * The boot body proper; every throw here is caught by boot()
+     */
+    private function arm(): void
+    {
+        if (!Core::isInitialized()) {
             Core::init();
         }
 
@@ -147,8 +195,9 @@ final class Debugger
         // z-engine's own preloadFrameworkClasses.)
         $this->preloadPackageClasses();
 
-        $compiler = Core::$compiler;
-        $compiler->setOptions($compiler->getOptions() | Compiler::COMPILE_EXTENDED_STMT);
+        $compiler                   = Core::$compiler;
+        $this->savedCompilerOptions = $compiler->getOptions();
+        $compiler->setOptions($this->savedCompilerOptions | Compiler::COMPILE_EXTENDED_STMT);
 
         $this->statementHook->install(fn(): ?DebugSession => $this->session);
         // Exception breakpoints ride the THROW opcode: the only window where a PHP callback
@@ -160,6 +209,7 @@ final class Debugger
             $this->config->clientHost,
             $this->config->clientPort,
             $this->config->connectTimeoutMs,
+            $this->config->readTimeoutMs,
         );
         if ($connection === null) {
             $this->log->debug(sprintf(
@@ -173,6 +223,18 @@ final class Debugger
 
         $this->module?->describe($this->config, true);
         $this->openSession($connection);
+    }
+
+    /**
+     * Puts the compiler options back as boot() found them, if it got that far
+     */
+    private function restoreCompilerOptions(): void
+    {
+        if ($this->savedCompilerOptions === null || !Core::isInitialized()) {
+            return;
+        }
+        Core::$compiler->setOptions($this->savedCompilerOptions);
+        $this->savedCompilerOptions = null;
     }
 
     /**

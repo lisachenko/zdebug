@@ -72,7 +72,7 @@ final class ContextProvider
         }
 
         $thisValue = $execution->getThis();
-        if ($thisValue->getType() === ReflectionValue::IS_OBJECT) {
+        if ($thisValue !== null) {
             $variables['$this'] = self::materialize($thisValue);
         }
 

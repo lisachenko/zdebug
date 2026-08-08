@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace ZDebug\Protocol;
 
+use ZDebug\Breakpoint\Breakpoint;
+
 /**
  * Builds DBGp XML payloads (the wire framing is applied by DbgpConnection)
  *
@@ -19,15 +21,16 @@ namespace ZDebug\Protocol;
  * uses and the debugger_protocol_v1 namespace (plus the xdebug extension namespace,
  * which some IDEs key cursor movement off). Payload text values are base64-encoded by
  * the caller (PropertySerializer); this class only escapes XML attribute/element text.
+ *
+ * Two shapes live here: instance methods build a whole packet (init/response/error),
+ * static ones render a single element that a caller passes back as a response body.
+ * No layer above this one concatenates protocol XML of its own.
  */
 final class ResponseBuilder
 {
-    public const string PROLOG    = '<?xml version="1.0" encoding="iso-8859-1"?>';
+    public const string PROLOG    = '<?xml version="1.0" encoding="' . EngineIdentity::ENCODING . '"?>';
     public const string NS        = 'urn:debugger_protocol_v1';
     public const string NS_XDEBUG = 'https://xdebug.org/dbgp/xdebug';
-
-    private const string ENGINE_NAME    = 'zdebug';
-    private const string ENGINE_VERSION = '0.1.0';
 
     /**
      * Builds the <init> packet sent immediately after connecting to the IDE
@@ -38,14 +41,14 @@ final class ResponseBuilder
             'xmlns'                   => self::NS,
             'xmlns:xdebug'            => self::NS_XDEBUG,
             'fileuri'                 => $fileUri,
-            'language'                => 'PHP',
+            'language'                => EngineIdentity::LANGUAGE,
             'xdebug:language_version' => $languageVersion,
-            'protocol_version'        => '1.0',
+            'protocol_version'        => EngineIdentity::PROTOCOL_VERSION,
             'appid'                   => (string) $appId,
             'idekey'                  => $ideKey,
         ]);
-        $engine = '<engine version="' . self::escape(self::ENGINE_VERSION) . '">'
-            . '<![CDATA[' . self::ENGINE_NAME . ']]></engine>';
+        $engine = '<engine version="' . self::escape(EngineIdentity::VERSION) . '">'
+            . '<![CDATA[' . EngineIdentity::NAME . ']]></engine>';
 
         return self::PROLOG . '<init ' . $attributes . '>' . $engine . '</init>';
     }
@@ -82,6 +85,21 @@ final class ResponseBuilder
     }
 
     /**
+     * Builds the feature_get response, whose value is element text rather than an attribute
+     *
+     * `supported` answers two different questions with one attribute: for a feature name it
+     * means "this engine knows the setting", for a command name it means "this engine
+     * implements the command" - IDEs probe both through feature_get.
+     */
+    public function feature(string $transactionId, string $name, bool $supported, string $value): string
+    {
+        return $this->response(DbgpCommand::FeatureGet->value, $transactionId, [
+            'feature_name' => $name,
+            'supported'    => $supported ? '1' : '0',
+        ], self::escape($value));
+    }
+
+    /**
      * Builds the <xdebug:message> element that tells the IDE where the debuggee stopped
      *
      * IDEs move their cursor off filename/lineno; for an exception breakpoint Xdebug also
@@ -104,7 +122,81 @@ final class ResponseBuilder
     }
 
     /**
+     * Renders one <breakpoint> element, including hit bookkeeping and the condition
+     *
+     * hit_count / hit_value / hit_condition are what an IDE needs to render a hit-limited
+     * breakpoint; the condition of a conditional breakpoint is returned base64-encoded in
+     * the <expression> child, as the DBGp spec prescribes for user-supplied source.
+     */
+    public static function breakpoint(Breakpoint $breakpoint): string
+    {
+        $attributes = [
+            'id'       => (string) $breakpoint->id,
+            'type'     => $breakpoint->type->value,
+            'state'    => $breakpoint->state(),
+            'resolved' => 'resolved',
+        ];
+        if ($breakpoint->file !== null) {
+            $attributes['filename'] = FileUri::fromPath($breakpoint->file);
+        }
+        if ($breakpoint->line !== null) {
+            $attributes['lineno'] = (string) $breakpoint->line;
+        }
+        if ($breakpoint->exceptionName !== null) {
+            $attributes['exception'] = $breakpoint->exceptionName;
+        }
+        $attributes['hit_count']     = (string) $breakpoint->hitCount;
+        $attributes['hit_value']     = (string) $breakpoint->hitValue;
+        $attributes['hit_condition'] = $breakpoint->hitCondition;
+
+        $rendered = '<breakpoint ' . self::attributes($attributes);
+        if ($breakpoint->condition === null) {
+            return $rendered . '/>';
+        }
+
+        return $rendered . '><expression><![CDATA[' . base64_encode($breakpoint->condition) . ']]></expression></breakpoint>';
+    }
+
+    /**
+     * Renders one <stack> element of a stack_get response
+     *
+     * type="file" is the only frame type a PHP debuggee produces (DBGp also defines
+     * "eval"); `where` is the function name an IDE prints in its call-stack panel.
+     */
+    public static function stackFrame(int $level, string $where, string $fileUri, int $line): string
+    {
+        return '<stack ' . self::attributes([
+            'where'    => $where,
+            'level'    => (string) $level,
+            'type'     => 'file',
+            'filename' => $fileUri,
+            'lineno'   => (string) $line,
+        ]) . '/>';
+    }
+
+    /**
+     * Renders the <context> elements of a context_names response
+     *
+     * The ids are the ones context_get takes in its -c argument; the names are display
+     * labels the IDE shows as variable-panel sections.
+     *
+     * @param array<string, int> $contexts Display name => context id
+     */
+    public static function contextNames(array $contexts): string
+    {
+        $body = '';
+        foreach ($contexts as $name => $id) {
+            $body .= '<context ' . self::attributes(['name' => $name, 'id' => (string) $id]) . '/>';
+        }
+
+        return $body;
+    }
+
+    /**
      * Renders an attribute string from a name => value map (values XML-escaped)
+     *
+     * Public for PropertySerializer, which renders the <property> tree out of the context
+     * layer and needs the same escaping guarantees as the elements built here.
      *
      * @param array<string, string> $attributes
      */
@@ -125,7 +217,7 @@ final class ResponseBuilder
      * anonymous-class names) are stripped first: htmlspecialchars would pass them
      * through and produce a document no parser accepts.
      */
-    public static function escape(string $value): string
+    private static function escape(string $value): string
     {
         $value = self::stripInvalidXmlChars($value);
 
@@ -139,7 +231,7 @@ final class ResponseBuilder
      * anonymous-class names ("class@anonymous\0...") and binary string values would
      * otherwise break well-formedness.
      */
-    public static function stripInvalidXmlChars(string $value): string
+    private static function stripInvalidXmlChars(string $value): string
     {
         $cleaned = preg_replace('/[^\x09\x0A\x0D\x20-\x{10FFFF}]/u', '', $value);
         if ($cleaned !== null) {

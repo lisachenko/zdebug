@@ -81,13 +81,15 @@ final class Settings
     }
 
     /**
+     * @param list<string> $default
+     *
      * @return list<string>
      */
-    public function stringList(Setting $key): array
+    public function stringList(Setting $key, array $default = []): array
     {
         $value = $this->get($key);
         if (!is_array($value)) {
-            return [];
+            return $default;
         }
         $result = [];
         foreach ($value as $item) {

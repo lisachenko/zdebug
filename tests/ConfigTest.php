@@ -22,7 +22,8 @@ final class ConfigTest extends TestCase
 
     private const array VARS = [
         'ZDEBUG_CLIENT_HOST', 'ZDEBUG_CLIENT_PORT', 'ZDEBUG_IDEKEY', 'DBGP_IDEKEY',
-        'ZDEBUG_PATH_FILTER', 'ZDEBUG_CONNECT_TIMEOUT_MS', 'ZDEBUG_MODE', 'ZDEBUG_LOG',
+        'ZDEBUG_PATH_FILTER', 'ZDEBUG_CONNECT_TIMEOUT_MS', 'ZDEBUG_READ_TIMEOUT_MS',
+        'ZDEBUG_MODE', 'ZDEBUG_LOG',
         // Cleared so an Xdebug-configured host environment cannot leak into these tests
         'XDEBUG_MODE', 'XDEBUG_CONFIG', 'XDEBUG_SESSION', 'XDEBUG_TRIGGER',
     ];
@@ -62,12 +63,14 @@ final class ConfigTest extends TestCase
         putenv('ZDEBUG_CLIENT_PORT=9009');
         putenv('ZDEBUG_IDEKEY=phpstorm');
         putenv('ZDEBUG_CONNECT_TIMEOUT_MS=500');
+        putenv('ZDEBUG_READ_TIMEOUT_MS=30000');
 
         $config = Config::fromEnvironment();
         $this->assertSame('10.0.0.5', $config->clientHost);
         $this->assertSame(9009, $config->clientPort);
         $this->assertSame('phpstorm', $config->ideKey);
         $this->assertSame(500, $config->connectTimeoutMs);
+        $this->assertSame(30000, $config->readTimeoutMs);
     }
 
     public function testIdeKeyFallsBackToDbgpConvention(): void

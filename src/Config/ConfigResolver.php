@@ -21,7 +21,9 @@ use ZDebug\Config;
  * own ZDEBUG_* environment, then an explicit array passed to Debugger::attach(). Because
  * each layer overrides only the keys it sets, Xdebug is a pure per-key fallback: it fills
  * in only what your own ZDEBUG_* values leave unspecified, and never overrides them. The
- * built-in defaults are applied last of all, when no source had an opinion at all.
+ * built-in defaults are applied last of all, when no source had an opinion at all - and
+ * they are not restated here: they are read off a default-constructed Config, whose
+ * promoted-property defaults are their single source of truth.
  */
 final class ConfigResolver
 {
@@ -35,19 +37,22 @@ final class ConfigResolver
     public function resolve(array $overrides = []): Config
     {
         // Xdebug (fallback) < ZDEBUG_* (own) < explicit array. No defaults layer competes
-        // here: the hard defaults live only in the getters below and win nothing a source set.
+        // here: an unset key simply falls through to the corresponding Config default.
         $settings = $this->xdebug->settings()
             ->merge($this->zdebugEnvironment())
             ->merge(new Settings($overrides));
 
+        $defaults = new Config();
+
         return new Config(
-            clientHost: $settings->string(Setting::ClientHost, '127.0.0.1'),
-            clientPort: $settings->int(Setting::ClientPort, 9003),
-            ideKey: $settings->string(Setting::IdeKey, 'zdebug'),
-            pathFilter: $settings->stringList(Setting::PathFilter),
-            connectTimeoutMs: $settings->int(Setting::ConnectTimeoutMs, 200),
-            mode: $settings->string(Setting::Mode, 'debug'),
-            logFile: $settings->stringOrNull(Setting::Log),
+            clientHost: $settings->string(Setting::ClientHost, $defaults->clientHost),
+            clientPort: $settings->int(Setting::ClientPort, $defaults->clientPort),
+            ideKey: $settings->string(Setting::IdeKey, $defaults->ideKey),
+            pathFilter: $settings->stringList(Setting::PathFilter, $defaults->pathFilter),
+            connectTimeoutMs: $settings->int(Setting::ConnectTimeoutMs, $defaults->connectTimeoutMs),
+            readTimeoutMs: $settings->int(Setting::ReadTimeoutMs, $defaults->readTimeoutMs),
+            mode: $settings->string(Setting::Mode, $defaults->mode),
+            logFile: $settings->stringOrNull(Setting::Log) ?? $defaults->logFile,
         );
     }
 
@@ -72,6 +77,8 @@ final class ConfigResolver
         $settings->set(Setting::IdeKey, self::env('ZDEBUG_IDEKEY') ?? self::env('DBGP_IDEKEY'));
         $timeout = self::env('ZDEBUG_CONNECT_TIMEOUT_MS');
         $settings->set(Setting::ConnectTimeoutMs, $timeout !== null ? (int) $timeout : null);
+        $readTimeout = self::env('ZDEBUG_READ_TIMEOUT_MS');
+        $settings->set(Setting::ReadTimeoutMs, $readTimeout !== null ? (int) $readTimeout : null);
         $settings->set(Setting::Mode, self::env('ZDEBUG_MODE'));
         $settings->set(Setting::Log, self::env('ZDEBUG_LOG'));
 

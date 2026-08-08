@@ -68,10 +68,10 @@ final class StepController
     public function shouldBreak(int $currentDepth): bool
     {
         return match ($this->mode) {
-            ResumeMode::StepInto                  => true,
-            ResumeMode::StepOver                  => $currentDepth <= $this->resumeDepth,
-            ResumeMode::StepOut                   => $currentDepth < $this->resumeDepth,
-            ResumeMode::Run, ResumeMode::Stopping => false,
+            ResumeMode::StepInto => true,
+            ResumeMode::StepOver => $currentDepth <= $this->resumeDepth,
+            ResumeMode::StepOut  => $currentDepth < $this->resumeDepth,
+            ResumeMode::Run      => false,
         };
     }
 

@@ -47,9 +47,12 @@ final class DispatchResult
 
     /**
      * Terminate the session after sending a final response
+     *
+     * Carries no resume mode: the command loop tears the session down before it would
+     * ever look at one, so anything set here could only mislead a reader.
      */
     public static function terminate(string $response): self
     {
-        return new self($response, ResumeMode::Stopping, true);
+        return new self($response, null, true);
     }
 }

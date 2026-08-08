@@ -112,6 +112,61 @@ final class BreakpointRegistryTest extends TestCase
         $this->assertSame([], $registry->forException(\RuntimeException::class));
     }
 
+    public function testTemporaryBreakpointIsDroppedOnceItTriggers(): void
+    {
+        $registry  = new BreakpointRegistry();
+        $temporary = $registry->add(
+            new Breakpoint(id: 1, type: BreakpointType::Line, file: '/a.php', line: 3, temporary: true),
+        );
+
+        $registry->dropTemporary([$temporary]);
+
+        // `-r 1` is a one-shot: the same line must never suspend the debuggee twice
+        $this->assertNull($registry->get(1));
+        $this->assertSame([], $registry->atLine('/a.php', 3));
+        $this->assertFalse($registry->hasLineBreakpoints());
+    }
+
+    public function testDropTemporaryLeavesOrdinaryBreakpointsAlone(): void
+    {
+        $registry  = new BreakpointRegistry();
+        $permanent = $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/a.php', line: 3));
+        $temporary = $registry->add(
+            new Breakpoint(id: 2, type: BreakpointType::Line, file: '/a.php', line: 3, temporary: true),
+        );
+
+        // The hook hands over everything that triggered, temporary or not
+        $registry->dropTemporary([$permanent, $temporary]);
+
+        $this->assertSame([$permanent], $registry->atLine('/a.php', 3));
+        $this->assertNull($registry->get(2));
+    }
+
+    public function testATemporaryBreakpointFilteredOutByItsHitConditionStaysArmed(): void
+    {
+        $registry  = new BreakpointRegistry();
+        $temporary = $registry->add(new Breakpoint(
+            id: 1,
+            type: BreakpointType::Line,
+            file: '/a.php',
+            line: 3,
+            temporary: true,
+            hitValue: 2,
+        ));
+
+        // First pass: a hit, but the hit condition refuses it, so nothing triggered
+        $temporary->hitCount++;
+        $this->assertFalse($temporary->hitConditionSatisfied());
+        $registry->dropTemporary([]);
+        $this->assertCount(1, $registry->atLine('/a.php', 3));
+
+        // Second pass: the break happens and spends the breakpoint
+        $temporary->hitCount++;
+        $this->assertTrue($temporary->hitConditionSatisfied());
+        $registry->dropTemporary([$temporary]);
+        $this->assertSame([], $registry->atLine('/a.php', 3));
+    }
+
     public function testDisabledExceptionBreakpointKeepsTheGateOpenButNeverMatches(): void
     {
         $registry = new BreakpointRegistry();

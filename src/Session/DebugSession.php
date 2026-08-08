@@ -33,8 +33,12 @@ use ZEngine\System\ExecutionData;
  * records the pending run/step_* and unblocks the debuggee, and the response is sent
  * from enterBreak() when the next suspend happens - carrying the <xdebug:message> the
  * IDE uses to move its cursor.
+ *
+ * The session owns the transport and the status; what a command handler may read of a
+ * suspended debuggee is the SuspendedState contract it implements, which is all the
+ * dispatcher ever sees of it.
  */
-final class DebugSession
+final class DebugSession implements SuspendedState
 {
     private SessionStatus $status = SessionStatus::Starting;
 
@@ -48,6 +52,11 @@ final class DebugSession
 
     private readonly CommandParser $parser;
 
+    /**
+     * @param CommandDispatcherFactory|null $dispatchers Builds the dispatcher this session
+     *                                                   serves commands with; the default
+     *                                                   wiring is used when none is given
+     */
     public function __construct(
         private readonly DbgpConnection $connection,
         private readonly ResponseBuilder $xml,
@@ -57,9 +66,11 @@ final class DebugSession
         private readonly StackCollector $stackCollector,
         private readonly StepController $stepper,
         private readonly Log $log,
+        ?CommandDispatcherFactory $dispatchers = null,
     ) {
         $this->parser     = new CommandParser();
-        $this->dispatcher = new CommandDispatcher($this, $features, $breakpoints, $context, $xml, new ConditionEvaluator());
+        $factory          = $dispatchers ?? new CommandDispatcherFactory($features, $breakpoints, $context, $xml);
+        $this->dispatcher = $factory->create($this);
     }
 
     /**
@@ -82,11 +93,12 @@ final class DebugSession
      */
     public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null): void
     {
+        $snapshot             = $this->stackCollector->collect($top);
         $this->status         = SessionStatus::Break;
-        $this->suspendedStack = $this->stackCollector->collect($top);
+        $this->suspendedStack = $snapshot->frames;
 
         $this->answerPendingContinuation($exception);
-        $this->commandLoop(StackCollector::depthOf($top));
+        $this->commandLoop($snapshot->rawDepth);
 
         // Borrowed frames are only valid while suspended; drop them on resume
         $this->suspendedStack = [];
@@ -117,6 +129,18 @@ final class DebugSession
         } finally {
             $this->connection->close();
         }
+    }
+
+    /**
+     * Drops the IDE connection and marks the session stopped (idempotent)
+     *
+     * Unlike onScriptEnd() this exchanges no messages: it is the teardown path for a
+     * debugger that is going away mid-flight, where the debuggee must simply run on.
+     */
+    public function close(): void
+    {
+        $this->status = SessionStatus::Stopped;
+        $this->connection->close();
     }
 
     public function status(): SessionStatus

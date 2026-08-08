@@ -28,15 +28,19 @@ final class StackCollector
     public function __construct(private readonly OpArrayGate $gate) {}
 
     /**
-     * Collects the whole suspended stack, innermost first (level 0)
+     * Walks the suspended stack once, yielding both views of it
      *
-     * @return list<StackFrame>
+     * The displayable frames (innermost first, level 0) and the raw engine depth come
+     * out of the same traversal: they diverge as soon as an internal frame sits mid-stack
+     * (an `array_map` callback, say), and walking twice both cost O(depth) on every break
+     * and let the two numbers be read from different moments.
      */
-    public function collect(ExecutionData $top): array
+    public function collect(ExecutionData $top): StackSnapshot
     {
-        $frames  = [];
-        $level   = 0;
-        $current = $top;
+        $frames   = [];
+        $level    = 0;
+        $rawDepth = 1;
+        $current  = $top;
 
         while (true) {
             $frame = $this->frameFor($current, $level);
@@ -48,24 +52,10 @@ final class StackCollector
                 break;
             }
             $current = $current->getPrevious();
+            $rawDepth++;
         }
 
-        return $frames;
-    }
-
-    /**
-     * Computes the depth (frame count from the top) of a frame - the stepping metric
-     */
-    public static function depthOf(ExecutionData $frame): int
-    {
-        $depth   = 1;
-        $current = $frame;
-        while ($current->hasPrevious()) {
-            $depth++;
-            $current = $current->getPrevious();
-        }
-
-        return $depth;
+        return new StackSnapshot($frames, $rawDepth);
     }
 
     private function frameFor(ExecutionData $execution, int $level): ?StackFrame

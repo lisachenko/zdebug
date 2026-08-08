@@ -13,17 +13,16 @@ declare(strict_types=1);
 namespace ZDebug\Instrumentation;
 
 use ZEngine\System\ExecutionData;
-use ZEngine\Type\StringEntry;
 
 /**
  * Resolves and memoizes the per-frame "should this be observed" decision
  *
  * Each op_array is decided once, keyed by its stable entry address, so the statement
- * hook's steady-state cost is one array lookup. This is also the single place in
- * zdebug that reads a raw engine struct field: op_array->filename / ->function_name.
- * The native ReflectionFunction::getFileName()/getName() cannot be used here because
- * they throw for closure frames (uninitialized native reflection state), and throwing
- * inside the opcode-handler FFI callback is a fatal engine abort.
+ * hook's steady-state cost is one array lookup. Identity comes from z-engine's
+ * pointer-based getFileName()/getFunctionName(), never from native reflection: the
+ * native accessors construct reflection state that throws for closure frames, and
+ * throwing inside the opcode-handler FFI callback is a fatal engine abort. Both return
+ * null rather than throwing when the engine field is unset.
  */
 final class OpArrayGate
 {
@@ -48,23 +47,10 @@ final class OpArrayGate
             return $this->cache[$address];
         }
 
-        $opArray  = $entry->getOpArrayPointer();
-        $file     = self::readString($opArray->filename);
-        $name     = self::readString($opArray->function_name) ?? '{main}';
+        $file     = $entry->getFileName();
+        $name     = $entry->getFunctionName() ?? '{main}';
         $observed = $file !== null && $this->filter->accepts($file);
 
         return $this->cache[$address] = new GateDecision($observed, $file ?? '', $name);
-    }
-
-    /**
-     * Reads a zend_string* engine field into a PHP string, or null when the pointer is null
-     */
-    private static function readString(mixed $pointer): ?string
-    {
-        if ($pointer === null) {
-            return null;
-        }
-
-        return StringEntry::fromCData($pointer)->getStringValue();
     }
 }

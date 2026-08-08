@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace ZDebug\Tests\Config;
 
 use PHPUnit\Framework\TestCase;
+use ZDebug\Config;
 use ZDebug\Config\ConfigResolver;
 use ZDebug\Config\Setting;
 use ZDebug\Config\XdebugCompat;
@@ -24,7 +25,8 @@ final class ConfigResolverTest extends TestCase
 
     private const array VARS = [
         'ZDEBUG_CLIENT_HOST', 'ZDEBUG_CLIENT_PORT', 'ZDEBUG_IDEKEY', 'DBGP_IDEKEY',
-        'ZDEBUG_PATH_FILTER', 'ZDEBUG_CONNECT_TIMEOUT_MS', 'ZDEBUG_MODE', 'ZDEBUG_LOG',
+        'ZDEBUG_PATH_FILTER', 'ZDEBUG_CONNECT_TIMEOUT_MS', 'ZDEBUG_READ_TIMEOUT_MS',
+        'ZDEBUG_MODE', 'ZDEBUG_LOG',
     ];
 
     protected function setUp(): void
@@ -64,6 +66,30 @@ final class ConfigResolverTest extends TestCase
         $this->assertSame(9003, $config->clientPort);
         $this->assertSame('zdebug', $config->ideKey);
         $this->assertSame('debug', $config->mode);
+    }
+
+    public function testResolvingNothingYieldsExactlyADefaultConstructedConfig(): void
+    {
+        // The guard that keeps the defaults in one place: Config's promoted-property
+        // defaults ARE the built-in defaults, and the resolver must not restate them.
+        // A literal drifting out of sync in either file fails right here.
+        $this->assertEquals(new Config(), $this->resolver()->resolve());
+    }
+
+    public function testReadTimeoutComesFromTheEnvironmentAndFallsBackToTheConfigDefault(): void
+    {
+        $this->assertSame((new Config())->readTimeoutMs, $this->resolver()->resolve()->readTimeoutMs);
+
+        putenv('ZDEBUG_READ_TIMEOUT_MS=1500');
+        $this->assertSame(1500, $this->resolver()->resolve()->readTimeoutMs);
+
+        // 0 is a meaningful value (wait forever), not "unset"
+        putenv('ZDEBUG_READ_TIMEOUT_MS=0');
+        $this->assertSame(0, $this->resolver()->resolve()->readTimeoutMs);
+
+        // ... and an explicit override still wins over the environment
+        $config = $this->resolver()->resolve([Setting::ReadTimeoutMs->value => 250]);
+        $this->assertSame(250, $config->readTimeoutMs);
     }
 
     public function testXdebugLayerFillsInWhenNoZdebugVars(): void
