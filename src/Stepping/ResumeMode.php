@@ -14,6 +14,9 @@ namespace ZDebug\Stepping;
 
 /**
  * How execution resumes after a break, driving where the next suspend happens
+ *
+ * There is deliberately no "stopping" mode: a terminated session never resumes the
+ * debuggee through the stepper, it closes the connection and lets the script run out.
  */
 enum ResumeMode
 {
@@ -28,7 +31,4 @@ enum ResumeMode
 
     /** Break on the next statement shallower than the current frame (run to return) */
     case StepOut;
-
-    /** The session is ending; do not break again */
-    case Stopping;
 }
