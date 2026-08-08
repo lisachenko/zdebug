@@ -9,12 +9,21 @@ on:
 
 jobs:
   tests:
-    name: Tests (PHP ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.4', '8.5']
+        include:
+          - { os: ubuntu-latest, php: '8.4' }
+          - { os: ubuntu-latest, php: '8.5' }
+          # z-engine ships darwin (x64 + arm64) definitions for both the 8.4
+          # and 8.5 lines (lisachenko/z-engine#58), so macOS runs the full PHP
+          # matrix. macos-latest is arm64, macos-15-intel is x64.
+          - { os: macos-latest, php: '8.4' }
+          - { os: macos-latest, php: '8.5' }
+          - { os: macos-15-intel, php: '8.4' }
+          - { os: macos-15-intel, php: '8.5' }
     steps:
       - uses: actions/checkout@v4
 
