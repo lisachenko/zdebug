@@ -18,6 +18,7 @@ use ZDebug\Breakpoint\BreakpointType;
 use ZDebug\Context\ContextProvider;
 use ZDebug\Context\PropertySerializer;
 use ZDebug\Protocol\Command;
+use ZDebug\Protocol\DbgpCommand;
 use ZDebug\Protocol\ErrorCode;
 use ZDebug\Protocol\FileUri;
 use ZDebug\Protocol\ResponseBuilder;
@@ -26,9 +27,11 @@ use ZDebug\Stepping\ResumeMode;
 /**
  * Maps DBGp commands to debugger actions
  *
- * Every handler returns a DispatchResult; unknown commands answer error 4 and a handler
- * that throws is turned into error 998 - the loop above never sees an exception. The
- * dispatcher reads suspended state (stack, features) from the DebugSession it serves.
+ * Every handler returns a DispatchResult; a command outside DbgpCommand answers error 4
+ * and a handler that throws is turned into error 998 - the loop above never sees an
+ * exception, because it runs inside the FFI statement callback where a throw is fatal.
+ * Suspended state (stack, frames, status) is read from the DebugSession it serves;
+ * the response XML is built entirely by ResponseBuilder.
  */
 final class CommandDispatcher
 {
@@ -47,33 +50,34 @@ final class CommandDispatcher
             return $this->handle($command);
         } catch (\Throwable $error) {
             return DispatchResult::reply(
-                $this->xml->error($command->name, $command->transactionId, ErrorCode::InternalError, $error->getMessage()),
+                $this->xml->error($command->name, $command->transactionId, ErrorCode::InternalException, $error->getMessage()),
             );
         }
     }
 
     private function handle(Command $command): DispatchResult
     {
-        return match ($command->name) {
-            'status'            => $this->status($command),
-            'feature_get'       => $this->featureGet($command),
-            'feature_set'       => $this->featureSet($command),
-            'breakpoint_set'    => $this->breakpointSet($command),
-            'breakpoint_get'    => $this->breakpointGet($command),
-            'breakpoint_remove' => $this->breakpointRemove($command),
-            'breakpoint_list'   => $this->breakpointList($command),
-            'stack_get'         => $this->stackGet($command),
-            'context_names'     => $this->contextNames($command),
-            'context_get'       => $this->contextGet($command),
-            'eval'              => $this->evaluate($command),
-            'run'               => DispatchResult::continuation(ResumeMode::Run),
-            'step_into'         => DispatchResult::continuation(ResumeMode::StepInto),
-            'step_over'         => DispatchResult::continuation(ResumeMode::StepOver),
-            'step_out'          => DispatchResult::continuation(ResumeMode::StepOut),
-            'stop'              => $this->stop($command),
-            'detach'            => $this->detach($command),
-            'stdout', 'stderr'  => $this->reply($command, ['success' => '0']),
-            default             => $this->unimplemented($command),
+        return match (DbgpCommand::tryFrom($command->name)) {
+            DbgpCommand::Status           => $this->status($command),
+            DbgpCommand::FeatureGet       => $this->featureGet($command),
+            DbgpCommand::FeatureSet       => $this->featureSet($command),
+            DbgpCommand::BreakpointSet    => $this->breakpointSet($command),
+            DbgpCommand::BreakpointGet    => $this->breakpointGet($command),
+            DbgpCommand::BreakpointRemove => $this->breakpointRemove($command),
+            DbgpCommand::BreakpointList   => $this->breakpointList($command),
+            DbgpCommand::StackGet         => $this->stackGet($command),
+            DbgpCommand::ContextNames     => $this->contextNames($command),
+            DbgpCommand::ContextGet       => $this->contextGet($command),
+            DbgpCommand::Eval             => $this->evaluate($command),
+            DbgpCommand::Run              => DispatchResult::continuation(ResumeMode::Run),
+            DbgpCommand::StepInto         => DispatchResult::continuation(ResumeMode::StepInto),
+            DbgpCommand::StepOver         => DispatchResult::continuation(ResumeMode::StepOver),
+            DbgpCommand::StepOut          => DispatchResult::continuation(ResumeMode::StepOut),
+            DbgpCommand::Stop             => $this->stop($command),
+            DbgpCommand::Detach           => $this->detach($command),
+            DbgpCommand::Stdout,
+            DbgpCommand::Stderr => $this->reply($command, ['success' => '0']),
+            null                => $this->unimplemented($command),
         };
     }
 
@@ -85,16 +89,25 @@ final class CommandDispatcher
         ]);
     }
 
+    /**
+     * feature_get: reads a feature value, or probes whether a command is implemented
+     *
+     * An unknown name that happens to be a command we dispatch answers supported="1" with
+     * the value "1"; DbgpCommand is the same table dispatch matches on, so the engine can
+     * never advertise a command it would then answer error 4 for.
+     */
     private function featureGet(Command $command): DispatchResult
     {
         $name      = (string) $command->argument('n', '');
-        $supported = $this->features->supports($name);
-        $value     = $this->features->get($name) ?? ($this->isCommandName($name) ? '1' : '0');
+        $isCommand = DbgpCommand::isSupported($name);
+        $value     = $this->features->get($name) ?? ($isCommand ? '1' : '0');
 
-        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
-            'feature_name' => $name,
-            'supported'    => $supported || $this->isCommandName($name) ? '1' : '0',
-        ], ResponseBuilder::escape($value)));
+        return DispatchResult::reply($this->xml->feature(
+            $command->transactionId,
+            $name,
+            $this->features->supports($name) || $isCommand,
+            $value,
+        ));
     }
 
     private function featureSet(Command $command): DispatchResult
@@ -190,58 +203,17 @@ final class CommandDispatcher
             return $this->error($command, ErrorCode::BreakpointDoesNotExist, 'No such breakpoint');
         }
 
-        return DispatchResult::reply($this->xml->response(
-            $command->name,
-            $command->transactionId,
-            [],
-            self::breakpointElement($breakpoint),
-        ));
+        return $this->body($command, ResponseBuilder::breakpoint($breakpoint));
     }
 
     private function breakpointList(Command $command): DispatchResult
     {
         $body = '';
         foreach ($this->breakpoints->all() as $breakpoint) {
-            $body .= self::breakpointElement($breakpoint);
+            $body .= ResponseBuilder::breakpoint($breakpoint);
         }
 
-        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
-    }
-
-    /**
-     * Renders one <breakpoint> element, including hit bookkeeping and the condition
-     *
-     * hit_count / hit_value / hit_condition are what an IDE needs to render a hit-limited
-     * breakpoint; the condition of a conditional breakpoint is returned base64-encoded in
-     * the <expression> child, as the DBGp spec prescribes for user-supplied source.
-     */
-    private static function breakpointElement(Breakpoint $breakpoint): string
-    {
-        $attributes = [
-            'id'       => (string) $breakpoint->id,
-            'type'     => $breakpoint->type->value,
-            'state'    => $breakpoint->state(),
-            'resolved' => 'resolved',
-        ];
-        if ($breakpoint->file !== null) {
-            $attributes['filename'] = FileUri::fromPath($breakpoint->file);
-        }
-        if ($breakpoint->line !== null) {
-            $attributes['lineno'] = (string) $breakpoint->line;
-        }
-        if ($breakpoint->exceptionName !== null) {
-            $attributes['exception'] = $breakpoint->exceptionName;
-        }
-        $attributes['hit_count']     = (string) $breakpoint->hitCount;
-        $attributes['hit_value']     = (string) $breakpoint->hitValue;
-        $attributes['hit_condition'] = $breakpoint->hitCondition;
-
-        $rendered = '<breakpoint ' . ResponseBuilder::attributes($attributes);
-        if ($breakpoint->condition === null) {
-            return $rendered . '/>';
-        }
-
-        return $rendered . '><expression><![CDATA[' . base64_encode($breakpoint->condition) . ']]></expression></breakpoint>';
+        return $this->body($command, $body);
     }
 
     private function stackGet(Command $command): DispatchResult
@@ -252,24 +224,23 @@ final class CommandDispatcher
             if ($requested !== null && $frame->level !== $requested) {
                 continue;
             }
-            $body .= '<stack ' . ResponseBuilder::attributes([
-                'where'    => $frame->where,
-                'level'    => (string) $frame->level,
-                'type'     => 'file',
-                'filename' => FileUri::fromPath($frame->file),
-                'lineno'   => (string) $frame->line,
-            ]) . '/>';
+            $body .= ResponseBuilder::stackFrame(
+                $frame->level,
+                $frame->where,
+                FileUri::fromPath($frame->file),
+                $frame->line,
+            );
         }
 
-        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+        return $this->body($command, $body);
     }
 
     private function contextNames(Command $command): DispatchResult
     {
-        $body = '<context name="Locals" id="' . ContextProvider::CONTEXT_LOCALS . '"/>'
-            . '<context name="Superglobals" id="' . ContextProvider::CONTEXT_SUPERGLOBALS . '"/>';
-
-        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+        return $this->body($command, ResponseBuilder::contextNames([
+            'Locals'       => ContextProvider::CONTEXT_LOCALS,
+            'Superglobals' => ContextProvider::CONTEXT_SUPERGLOBALS,
+        ]));
     }
 
     private function contextGet(Command $command): DispatchResult
@@ -367,12 +338,15 @@ final class CommandDispatcher
         return $this->error($command, ErrorCode::Unimplemented, "Command '{$command->name}' is not implemented");
     }
 
+    /**
+     * Builds the serializer for one response, honoring the IDE's current max_* features
+     */
     private function propertySerializer(): PropertySerializer
     {
         return new PropertySerializer(
-            maxDepth: $this->features->getInt('max_depth', 1),
-            maxChildren: $this->features->getInt('max_children', 100),
-            maxData: $this->features->getInt('max_data', 1024),
+            maxDepth: $this->features->getInt('max_depth'),
+            maxChildren: $this->features->getInt('max_children'),
+            maxData: $this->features->getInt('max_data'),
         );
     }
 
@@ -384,18 +358,16 @@ final class CommandDispatcher
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, $attributes));
     }
 
+    /**
+     * Replies with child elements and no extra attributes on the <response>
+     */
+    private function body(Command $command, string $body): DispatchResult
+    {
+        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+    }
+
     private function error(Command $command, ErrorCode $code, string $message): DispatchResult
     {
         return DispatchResult::reply($this->xml->error($command->name, $command->transactionId, $code, $message));
-    }
-
-    private function isCommandName(string $name): bool
-    {
-        // feature_get is also used to probe command availability; answer the ones we handle
-        return in_array($name, [
-            'break', 'eval', 'stdout', 'stderr', 'breakpoint_set', 'breakpoint_get', 'breakpoint_list',
-            'breakpoint_remove', 'context_get', 'context_names', 'stack_get',
-            'step_into', 'step_over', 'step_out', 'run', 'stop', 'detach', 'status', 'source',
-        ], true);
     }
 }

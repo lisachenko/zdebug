@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace ZDebug\Tests\Session;
 
 use PHPUnit\Framework\TestCase;
+use ZDebug\Breakpoint\BreakpointType;
 use ZDebug\Session\Features;
 
 final class FeaturesTest extends TestCase
@@ -39,7 +40,7 @@ final class FeaturesTest extends TestCase
     {
         $features = new Features('8.4.19');
         $this->assertTrue($features->set('max_depth', '5'));
-        $this->assertSame(5, $features->getInt('max_depth', 1));
+        $this->assertSame(5, $features->getInt('max_depth'));
     }
 
     public function testReadOnlyFeatureRejectsSet(): void
@@ -49,9 +50,24 @@ final class FeaturesTest extends TestCase
         $this->assertSame('1.0', $features->get('protocol_version'));
     }
 
-    public function testGetIntFallsBackWhenNonNumeric(): void
+    public function testGetIntFallsBackToTheShippedDefaultWhenNonNumeric(): void
     {
         $features = new Features('8.4.19');
-        $this->assertSame(1, $features->getInt('language_name', 1));
+        $this->assertTrue($features->set('max_depth', 'auto'));
+        $this->assertSame(1, $features->getInt('max_depth'), 'a nonsense override resolves back to the default');
+    }
+
+    public function testGetIntOfAnUnknownFeatureIsZero(): void
+    {
+        $features = new Features('8.4.19');
+        $this->assertSame(0, $features->getInt('warp_factor'));
+    }
+
+    public function testBreakpointTypesAreDerivedFromTheSupportedEnum(): void
+    {
+        $features   = new Features('8.4.19');
+        $advertised = explode(' ', (string) $features->get('breakpoint_types'));
+
+        $this->assertSame(array_column(BreakpointType::cases(), 'value'), $advertised);
     }
 }

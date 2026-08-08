@@ -15,6 +15,11 @@ namespace ZDebug\Protocol;
 /**
  * DBGp error codes (a subset of the spec, the ones a line debugger returns)
  *
+ * The 900 range separates the two failure kinds a client can act on: 998 means the
+ * debugger itself threw while handling an otherwise valid command (retrying the command
+ * is pointless, the session stays usable), 999 is the spec's catch-all for anything that
+ * fits nowhere else.
+ *
  * @see https://xdebug.org/docs/dbgp#error-codes
  */
 enum ErrorCode: int
@@ -45,6 +50,6 @@ enum ErrorCode: int
     case ContextInvalid       = 302;
 
     // 900 range: protocol errors
-    case EncodingUnsupported = 998;
-    case InternalError       = 999;
+    case InternalException = 998;
+    case UnknownError      = 999;
 }
