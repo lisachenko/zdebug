@@ -22,7 +22,6 @@ use ZEngine\System\ExecutionData;
 use ZEngine\System\Hook\OpCodeHook;
 use ZEngine\System\OpCode;
 use ZEngine\Type\OpLine;
-use ZEngine\Type\ReferenceEntry;
 
 /**
  * The THROW opcode handler: first-chance exception breakpoints
@@ -150,11 +149,12 @@ final class ThrowHook
         if ($operand === null) {
             return null;
         }
-        // The high byte of type_info carries the zval type flags; only the type is wanted
-        $valueType = $operand->getType() & 0xFF;
+        // getBaseType() reads the zval type alone; getType() would carry the type_info flags
+        $valueType = $operand->getBaseType();
         if ($valueType === ReflectionValue::IS_REFERENCE) {
-            $operand   = ReferenceEntry::fromCData($operand->getRawReference())->getValue();
-            $valueType = $operand->getType() & 0xFF;
+            // ZVAL_DEREF: a borrowed view over the zend_reference's val slot
+            $operand   = $operand->dereference();
+            $valueType = $operand->getBaseType();
         }
         if ($valueType !== ReflectionValue::IS_OBJECT) {
             return null;
