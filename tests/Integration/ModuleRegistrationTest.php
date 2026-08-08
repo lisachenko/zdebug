@@ -28,8 +28,8 @@ final class ModuleRegistrationTest extends TestCase
         if (!extension_loaded('ffi')) {
             $this->markTestSkipped('ext-ffi is required to register a runtime module');
         }
-        if (PHP_OS_FAMILY !== 'Linux' || PHP_INT_SIZE !== 8) {
-            $this->markTestSkipped('z-engine ships definitions for linux-x64 only');
+        if (!in_array(PHP_OS_FAMILY, ['Linux', 'Darwin'], true) || PHP_INT_SIZE !== 8) {
+            $this->markTestSkipped('z-engine ships definitions for 64-bit Linux and macOS only');
         }
     }
 
