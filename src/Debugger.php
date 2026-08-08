@@ -252,15 +252,7 @@ final class Debugger
      */
     private static function mapArrayKeys(array $config): array
     {
-        $allowed = [
-            Config\Settings::CLIENT_HOST,
-            Config\Settings::CLIENT_PORT,
-            Config\Settings::IDE_KEY,
-            Config\Settings::PATH_FILTER,
-            Config\Settings::CONNECT_TIMEOUT_MS,
-            Config\Settings::MODE,
-            Config\Settings::LOG,
-        ];
+        $allowed = array_column(Config\Setting::cases(), 'value');
 
         return array_intersect_key($config, array_flip($allowed));
     }

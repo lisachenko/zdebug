@@ -25,10 +25,6 @@ namespace ZDebug\Breakpoint;
  */
 final class Breakpoint
 {
-    public const string TYPE_LINE      = 'line';
-    public const string TYPE_CONDITION = 'conditional';
-    public const string TYPE_EXCEPTION = 'exception';
-
     /** Break from the n-th hit onwards (the DBGp default) */
     public const string HIT_GREATER_OR_EQUAL = '>=';
 
@@ -43,7 +39,7 @@ final class Breakpoint
 
     public function __construct(
         public readonly int $id,
-        public readonly string $type,
+        public readonly BreakpointType $type,
         public bool $enabled = true,
         public readonly ?string $file = null,
         public readonly ?int $line = null,
@@ -57,7 +53,7 @@ final class Breakpoint
 
     public function isLineType(): bool
     {
-        return $this->type === self::TYPE_LINE || $this->type === self::TYPE_CONDITION;
+        return $this->type === BreakpointType::Line || $this->type === BreakpointType::Conditional;
     }
 
     public function state(): string

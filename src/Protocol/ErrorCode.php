@@ -17,34 +17,34 @@ namespace ZDebug\Protocol;
  *
  * @see https://xdebug.org/docs/dbgp#error-codes
  */
-final class ErrorCode
+enum ErrorCode: int
 {
     // 000 range: command parsing errors
-    public const int PARSE_ERROR           = 1;
-    public const int DUPLICATE_ARGUMENTS   = 2;
-    public const int INVALID_OPTIONS       = 3;
-    public const int UNIMPLEMENTED         = 4;
-    public const int COMMAND_NOT_AVAILABLE = 5;
+    case ParseError          = 1;
+    case DuplicateArguments  = 2;
+    case InvalidOptions      = 3;
+    case Unimplemented       = 4;
+    case CommandNotAvailable = 5;
 
     // 100 range: file/data errors
-    public const int CANNOT_OPEN_FILE       = 100;
-    public const int STREAM_REDIRECT_FAILED = 101;
+    case CannotOpenFile       = 100;
+    case StreamRedirectFailed = 101;
 
     // 200 range: breakpoint / eval errors
-    public const int BREAKPOINT_TYPE_UNSUPPORTED = 201;
-    public const int BREAKPOINT_INVALID          = 202;
-    public const int BREAKPOINT_NO_CODE          = 203;
-    public const int BREAKPOINT_STATE_INVALID    = 204;
-    public const int BREAKPOINT_DOES_NOT_EXIST   = 205;
-    public const int EVAL_FAILED                 = 206;
-    public const int INVALID_EXPRESSION          = 207;
+    case BreakpointTypeUnsupported = 201;
+    case BreakpointInvalid         = 202;
+    case BreakpointNoCode          = 203;
+    case BreakpointStateInvalid    = 204;
+    case BreakpointDoesNotExist    = 205;
+    case EvalFailed                = 206;
+    case InvalidExpression         = 207;
 
     // 300 range: data / property errors
-    public const int PROPERTY_DOES_NOT_EXIST = 300;
-    public const int STACK_DEPTH_INVALID     = 301;
-    public const int CONTEXT_INVALID         = 302;
+    case PropertyDoesNotExist = 300;
+    case StackDepthInvalid    = 301;
+    case ContextInvalid       = 302;
 
     // 900 range: protocol errors
-    public const int ENCODING_UNSUPPORTED = 998;
-    public const int INTERNAL_ERROR       = 999;
+    case EncodingUnsupported = 998;
+    case InternalError       = 999;
 }

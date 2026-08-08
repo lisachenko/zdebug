@@ -15,6 +15,7 @@ namespace ZDebug\Tests\Breakpoint;
 use PHPUnit\Framework\TestCase;
 use ZDebug\Breakpoint\Breakpoint;
 use ZDebug\Breakpoint\BreakpointRegistry;
+use ZDebug\Breakpoint\BreakpointType;
 
 final class BreakpointRegistryTest extends TestCase
 {
@@ -28,7 +29,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testLineBreakpointIsFoundByLocation(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_LINE, file: '/app/x.php', line: 42));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/app/x.php', line: 42));
 
         $this->assertTrue($registry->hasLineBreakpoints());
         $this->assertCount(1, $registry->atLine('/app/x.php', 42));
@@ -39,7 +40,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testDisabledBreakpointIsNotReturnedByLocation(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_LINE, enabled: false, file: '/app/x.php', line: 7));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, enabled: false, file: '/app/x.php', line: 7));
 
         $this->assertCount(0, $registry->atLine('/app/x.php', 7));
     }
@@ -47,7 +48,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testRemoveDropsFromBothIndexes(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 5, type: Breakpoint::TYPE_LINE, file: '/app/x.php', line: 10));
+        $registry->add(new Breakpoint(id: 5, type: BreakpointType::Line, file: '/app/x.php', line: 10));
 
         $this->assertTrue($registry->remove(5));
         $this->assertNull($registry->get(5));
@@ -59,8 +60,8 @@ final class BreakpointRegistryTest extends TestCase
     public function testMultipleBreakpointsOnSameLine(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_LINE, file: '/a.php', line: 3));
-        $registry->add(new Breakpoint(id: 2, type: Breakpoint::TYPE_CONDITION, file: '/a.php', line: 3, condition: '$x > 1'));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/a.php', line: 3));
+        $registry->add(new Breakpoint(id: 2, type: BreakpointType::Conditional, file: '/a.php', line: 3, condition: '$x > 1'));
 
         $this->assertCount(2, $registry->atLine('/a.php', 3));
     }
@@ -68,7 +69,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testExceptionBreakpointSubclassMatch(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, exceptionName: \RuntimeException::class));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Exception, exceptionName: \RuntimeException::class));
 
         // RangeException extends RuntimeException — must match
         $this->assertCount(1, $registry->forException(\RangeException::class));
@@ -79,7 +80,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testWildcardExceptionBreakpointMatchesEverything(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, exceptionName: '*'));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Exception, exceptionName: '*'));
 
         $this->assertCount(1, $registry->forException(\LogicException::class));
     }
@@ -90,18 +91,18 @@ final class BreakpointRegistryTest extends TestCase
         $this->assertFalse($registry->hasExceptionBreakpoints());
 
         // A line breakpoint must not open the THROW hook's gate
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_LINE, file: '/a.php', line: 3));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/a.php', line: 3));
         $this->assertFalse($registry->hasExceptionBreakpoints());
 
-        $registry->add(new Breakpoint(id: 2, type: Breakpoint::TYPE_EXCEPTION, exceptionName: \RuntimeException::class));
+        $registry->add(new Breakpoint(id: 2, type: BreakpointType::Exception, exceptionName: \RuntimeException::class));
         $this->assertTrue($registry->hasExceptionBreakpoints());
     }
 
     public function testExceptionGateClosesAgainWhenTheLastBreakpointIsRemoved(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, exceptionName: \RuntimeException::class));
-        $registry->add(new Breakpoint(id: 2, type: Breakpoint::TYPE_EXCEPTION, exceptionName: '*'));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Exception, exceptionName: \RuntimeException::class));
+        $registry->add(new Breakpoint(id: 2, type: BreakpointType::Exception, exceptionName: '*'));
 
         $this->assertTrue($registry->remove(1));
         $this->assertTrue($registry->hasExceptionBreakpoints());
@@ -114,7 +115,7 @@ final class BreakpointRegistryTest extends TestCase
     public function testDisabledExceptionBreakpointKeepsTheGateOpenButNeverMatches(): void
     {
         $registry = new BreakpointRegistry();
-        $registry->add(new Breakpoint(id: 1, type: Breakpoint::TYPE_EXCEPTION, enabled: false, exceptionName: '*'));
+        $registry->add(new Breakpoint(id: 1, type: BreakpointType::Exception, enabled: false, exceptionName: '*'));
 
         // The gate is a cheap "anything registered at all" check; enablement is forException()'s job
         $this->assertTrue($registry->hasExceptionBreakpoints());

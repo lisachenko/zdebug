@@ -37,7 +37,7 @@ final class BreakpointRegistry
         $this->byId[$breakpoint->id] = $breakpoint;
         if ($breakpoint->isLineType() && $breakpoint->file !== null && $breakpoint->line !== null) {
             $this->byLocation[$breakpoint->file][$breakpoint->line][] = $breakpoint;
-        } elseif ($breakpoint->type === Breakpoint::TYPE_EXCEPTION) {
+        } elseif ($breakpoint->type === BreakpointType::Exception) {
             $this->exceptionBreakpoints[] = $breakpoint;
         }
 

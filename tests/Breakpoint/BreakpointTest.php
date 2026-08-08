@@ -15,6 +15,7 @@ namespace ZDebug\Tests\Breakpoint;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ZDebug\Breakpoint\Breakpoint;
+use ZDebug\Breakpoint\BreakpointType;
 
 final class BreakpointTest extends TestCase
 {
@@ -81,7 +82,7 @@ final class BreakpointTest extends TestCase
     {
         $conditional = new Breakpoint(
             id: 1,
-            type: Breakpoint::TYPE_CONDITION,
+            type: BreakpointType::Conditional,
             file: '/app/app.php',
             line: 12,
             condition: '$i === 3',
@@ -97,7 +98,7 @@ final class BreakpointTest extends TestCase
     {
         return new Breakpoint(
             id: 1,
-            type: Breakpoint::TYPE_LINE,
+            type: BreakpointType::Line,
             file: '/app/app.php',
             line: 10,
             hitValue: $hitValue,

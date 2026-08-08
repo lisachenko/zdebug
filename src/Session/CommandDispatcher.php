@@ -14,6 +14,7 @@ namespace ZDebug\Session;
 
 use ZDebug\Breakpoint\Breakpoint;
 use ZDebug\Breakpoint\BreakpointRegistry;
+use ZDebug\Breakpoint\BreakpointType;
 use ZDebug\Context\ContextProvider;
 use ZDebug\Context\PropertySerializer;
 use ZDebug\Protocol\Command;
@@ -46,7 +47,7 @@ final class CommandDispatcher
             return $this->handle($command);
         } catch (\Throwable $error) {
             return DispatchResult::reply(
-                $this->xml->error($command->name, $command->transactionId, ErrorCode::INTERNAL_ERROR, $error->getMessage()),
+                $this->xml->error($command->name, $command->transactionId, ErrorCode::InternalError, $error->getMessage()),
             );
         }
     }
@@ -110,9 +111,10 @@ final class CommandDispatcher
 
     private function breakpointSet(Command $command): DispatchResult
     {
-        $type = (string) $command->argument('t', Breakpoint::TYPE_LINE);
-        if ($type !== Breakpoint::TYPE_LINE && $type !== Breakpoint::TYPE_CONDITION && $type !== Breakpoint::TYPE_EXCEPTION) {
-            return $this->error($command, ErrorCode::BREAKPOINT_TYPE_UNSUPPORTED, "Unsupported breakpoint type '{$type}'");
+        $rawType = (string) $command->argument('t', BreakpointType::Line->value);
+        $type    = BreakpointType::tryFrom($rawType);
+        if ($type === null) {
+            return $this->error($command, ErrorCode::BreakpointTypeUnsupported, "Unsupported breakpoint type '{$rawType}'");
         }
 
         $enabled = ($command->argument('s', 'enabled')) !== 'disabled';
@@ -121,15 +123,15 @@ final class CommandDispatcher
         $hitValue     = max(0, $command->intArgument('h', 0) ?? 0);
         $hitCondition = (string) $command->argument('o', Breakpoint::HIT_GREATER_OR_EQUAL);
         if (!in_array($hitCondition, Breakpoint::HIT_CONDITIONS, true)) {
-            return $this->error($command, ErrorCode::BREAKPOINT_INVALID, "Unsupported hit condition '{$hitCondition}'");
+            return $this->error($command, ErrorCode::BreakpointInvalid, "Unsupported hit condition '{$hitCondition}'");
         }
 
         $id = $this->breakpoints->nextId();
 
-        if ($type === Breakpoint::TYPE_EXCEPTION) {
+        if ($type === BreakpointType::Exception) {
             $this->breakpoints->add(new Breakpoint(
                 id: $id,
-                type: Breakpoint::TYPE_EXCEPTION,
+                type: BreakpointType::Exception,
                 enabled: $enabled,
                 exceptionName: $command->argument('x'),
                 hitValue: $hitValue,
@@ -142,13 +144,13 @@ final class CommandDispatcher
         $fileUri = $command->argument('f');
         $line    = $command->intArgument('n');
         if ($fileUri === null || $line === null) {
-            return $this->error($command, ErrorCode::BREAKPOINT_INVALID, 'Line breakpoint requires -f and -n');
+            return $this->error($command, ErrorCode::BreakpointInvalid, 'Line breakpoint requires -f and -n');
         }
 
         $condition = $command->data; // conditional breakpoints carry the expression in the data part
         $this->breakpoints->add(new Breakpoint(
             id: $id,
-            type: $condition !== null && $condition !== '' ? Breakpoint::TYPE_CONDITION : Breakpoint::TYPE_LINE,
+            type: $condition !== null && $condition !== '' ? BreakpointType::Conditional : BreakpointType::Line,
             enabled: $enabled,
             file: FileUri::toPath($fileUri),
             line: $line,
@@ -174,7 +176,7 @@ final class CommandDispatcher
     {
         $id = $command->intArgument('d');
         if ($id === null || !$this->breakpoints->remove($id)) {
-            return $this->error($command, ErrorCode::BREAKPOINT_DOES_NOT_EXIST, 'No such breakpoint');
+            return $this->error($command, ErrorCode::BreakpointDoesNotExist, 'No such breakpoint');
         }
 
         return $this->reply($command, []);
@@ -185,7 +187,7 @@ final class CommandDispatcher
         $id         = $command->intArgument('d');
         $breakpoint = $id !== null ? $this->breakpoints->get($id) : null;
         if ($breakpoint === null) {
-            return $this->error($command, ErrorCode::BREAKPOINT_DOES_NOT_EXIST, 'No such breakpoint');
+            return $this->error($command, ErrorCode::BreakpointDoesNotExist, 'No such breakpoint');
         }
 
         return DispatchResult::reply($this->xml->response(
@@ -217,7 +219,7 @@ final class CommandDispatcher
     {
         $attributes = [
             'id'       => (string) $breakpoint->id,
-            'type'     => $breakpoint->type,
+            'type'     => $breakpoint->type->value,
             'state'    => $breakpoint->state(),
             'resolved' => 'resolved',
         ];
@@ -276,7 +278,7 @@ final class CommandDispatcher
         $depth     = $command->intArgument('d', 0)                               ?? 0;
         $frame     = $this->session->frameAtLevel($depth);
         if ($frame === null) {
-            return $this->error($command, ErrorCode::STACK_DEPTH_INVALID, "No stack frame at depth {$depth}");
+            return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
         }
 
         $serializer = $this->propertySerializer();
@@ -302,18 +304,18 @@ final class CommandDispatcher
     {
         $expression = $command->data ?? '';
         if (trim($expression) === '') {
-            return $this->error($command, ErrorCode::INVALID_EXPRESSION, 'eval requires an expression in the data part');
+            return $this->error($command, ErrorCode::InvalidExpression, 'eval requires an expression in the data part');
         }
 
         $depth = $command->intArgument('d', 0) ?? 0;
         $scope = $this->evaluationScope($depth);
         if ($scope === null) {
-            return $this->error($command, ErrorCode::STACK_DEPTH_INVALID, "No stack frame at depth {$depth}");
+            return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
         }
 
         $result = $this->evaluator->evaluate($expression, $scope);
         if (!$result->ok) {
-            return $this->error($command, ErrorCode::EVAL_FAILED, (string) $result->error);
+            return $this->error($command, ErrorCode::EvalFailed, (string) $result->error);
         }
 
         $body = $this->propertySerializer()->serialize($expression, $expression, $result->value);
@@ -362,7 +364,7 @@ final class CommandDispatcher
 
     private function unimplemented(Command $command): DispatchResult
     {
-        return $this->error($command, ErrorCode::UNIMPLEMENTED, "Command '{$command->name}' is not implemented");
+        return $this->error($command, ErrorCode::Unimplemented, "Command '{$command->name}' is not implemented");
     }
 
     private function propertySerializer(): PropertySerializer
@@ -382,7 +384,7 @@ final class CommandDispatcher
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, $attributes));
     }
 
-    private function error(Command $command, int $code, string $message): DispatchResult
+    private function error(Command $command, ErrorCode $code, string $message): DispatchResult
     {
         return DispatchResult::reply($this->xml->error($command->name, $command->transactionId, $code, $message));
     }

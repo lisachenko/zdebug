@@ -22,33 +22,25 @@ namespace ZDebug\Config;
  */
 final class Settings
 {
-    public const string CLIENT_HOST        = 'client_host';
-    public const string CLIENT_PORT        = 'client_port';
-    public const string IDE_KEY            = 'idekey';
-    public const string MODE               = 'mode';
-    public const string PATH_FILTER        = 'path_filter';
-    public const string CONNECT_TIMEOUT_MS = 'connect_timeout_ms';
-    public const string LOG                = 'log';
-
     /**
-     * @param array<string, mixed> $values
+     * @param array<string, mixed> $values Keyed by Setting backing values
      */
     public function __construct(private array $values = []) {}
 
-    public function has(string $key): bool
+    public function has(Setting $key): bool
     {
-        return array_key_exists($key, $this->values) && $this->values[$key] !== null;
+        return array_key_exists($key->value, $this->values) && $this->values[$key->value] !== null;
     }
 
-    public function get(string $key): mixed
+    public function get(Setting $key): mixed
     {
-        return $this->values[$key] ?? null;
+        return $this->values[$key->value] ?? null;
     }
 
-    public function set(string $key, mixed $value): void
+    public function set(Setting $key, mixed $value): void
     {
         if ($value !== null) {
-            $this->values[$key] = $value;
+            $this->values[$key->value] = $value;
         }
     }
 
@@ -67,23 +59,23 @@ final class Settings
         return new self($merged);
     }
 
-    public function string(string $key, string $default): string
+    public function string(Setting $key, string $default): string
     {
-        $value = $this->values[$key] ?? null;
+        $value = $this->get($key);
 
         return is_scalar($value) ? (string) $value : $default;
     }
 
-    public function int(string $key, int $default): int
+    public function int(Setting $key, int $default): int
     {
-        $value = $this->values[$key] ?? null;
+        $value = $this->get($key);
 
         return is_numeric($value) ? (int) $value : $default;
     }
 
-    public function stringOrNull(string $key): ?string
+    public function stringOrNull(Setting $key): ?string
     {
-        $value = $this->values[$key] ?? null;
+        $value = $this->get($key);
 
         return is_scalar($value) ? (string) $value : null;
     }
@@ -91,9 +83,9 @@ final class Settings
     /**
      * @return list<string>
      */
-    public function stringList(string $key): array
+    public function stringList(Setting $key): array
     {
-        $value = $this->values[$key] ?? null;
+        $value = $this->get($key);
         if (!is_array($value)) {
             return [];
         }
