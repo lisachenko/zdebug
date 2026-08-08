@@ -149,7 +149,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 
 ## Requirements
 
-- PHP **8.4 or 8.5** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for; macOS on PHP 8.4 for now); Composer resolves the matching z-engine line per minor
+- PHP **8.4 or 8.5** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor
 - `ffi.enable=1` and **`opcache.jit=off`** (the JIT rewrites the executor internals the hook plugs into)
 - Your app's code must load **after** zdebug attaches — `auto_prepend_file` guarantees this
 

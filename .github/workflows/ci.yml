@@ -17,11 +17,13 @@ jobs:
         include:
           - { os: ubuntu-latest, php: '8.4' }
           - { os: ubuntu-latest, php: '8.5' }
-          # macOS runs PHP 8.4 only: z-engine ships darwin definitions on its
-          # 8.4 branch (lisachenko/z-engine#58); the 8.5 line has none yet.
-          # macos-latest is arm64, macos-15-intel is x64 - both darwin arches.
+          # z-engine ships darwin (x64 + arm64) definitions for both the 8.4
+          # and 8.5 lines (lisachenko/z-engine#58), so macOS runs the full PHP
+          # matrix. macos-latest is arm64, macos-15-intel is x64.
           - { os: macos-latest, php: '8.4' }
+          - { os: macos-latest, php: '8.5' }
           - { os: macos-15-intel, php: '8.4' }
+          - { os: macos-15-intel, php: '8.5' }
     steps:
       - uses: actions/checkout@v4
 
