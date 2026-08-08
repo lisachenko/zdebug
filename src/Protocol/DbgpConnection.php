@@ -19,9 +19,20 @@ namespace ZDebug\Protocol;
  * IDE, which is listening. That is ideal for an in-process debugger: no accept loop,
  * no second thread, just a socket the suspended opcode handler blocks on. Commands
  * arrive NUL-terminated; responses are framed as `<decimal length> NUL <xml> NUL`.
+ *
+ * The blocking read is bounded: a suspended debuggee sits inside an opcode handler, so
+ * an IDE that stops answering (wedged process, dropped network - anything short of a
+ * clean FIN, which surfaces as EOF) would otherwise hang the host application forever.
+ * Once the read timeout elapses the peer is treated as gone, exactly like a closed
+ * socket, and the script is allowed to run to completion undebugged.
  */
 final class DbgpConnection
 {
+    /**
+     * Read granularity; a command longer than this is reassembled across reads
+     */
+    private const int READ_CHUNK_BYTES = 8192;
+
     /** @var resource|null */
     private $stream;
 
@@ -35,8 +46,12 @@ final class DbgpConnection
 
     /**
      * Connects to the IDE, returning null when it is not listening (silent degradation)
+     *
+     * @param int $timeoutMs     Connect timeout
+     * @param int $readTimeoutMs How long a read may block before the IDE counts as gone;
+     *                           0 or less leaves the stream unbounded (waits forever)
      */
-    public static function connect(string $host, int $port, int $timeoutMs): ?self
+    public static function connect(string $host, int $port, int $timeoutMs, int $readTimeoutMs = 0): ?self
     {
         $errno   = 0;
         $errstr  = '';
@@ -51,19 +66,24 @@ final class DbgpConnection
         if ($stream === false) {
             return null;
         }
-        stream_set_blocking($stream, true);
 
-        return new self($stream);
+        return self::fromStream($stream, $readTimeoutMs);
     }
 
     /**
      * Wraps an already-connected stream (used by tests and by pre-established sockets)
      *
      * @param resource $stream
+     * @param int      $readTimeoutMs See connect(); 0 or less leaves the stream unbounded
      */
-    public static function fromStream($stream): self
+    public static function fromStream($stream, int $readTimeoutMs = 0): self
     {
         stream_set_blocking($stream, true);
+        if ($readTimeoutMs > 0) {
+            // php.ini's default_socket_timeout (60s by default) would otherwise apply, and
+            // the old read loop simply span on it - an unbounded wait in all but name
+            stream_set_timeout($stream, intdiv($readTimeoutMs, 1000), ($readTimeoutMs % 1000) * 1000);
+        }
 
         return new self($stream);
     }
@@ -86,7 +106,11 @@ final class DbgpConnection
     }
 
     /**
-     * Blocks for the next NUL-terminated command line, or null when the peer closed
+     * Blocks for the next NUL-terminated command line, or null when the peer is gone
+     *
+     * "Gone" covers both a closed socket and a read that outlived the stream timeout: the
+     * caller reacts to null the same way in either case - stop debugging and let the
+     * script run - so an unresponsive IDE degrades exactly like a disconnected one.
      */
     public function receive(): ?string
     {
@@ -95,17 +119,21 @@ final class DbgpConnection
         }
         $buffer = '';
         while (true) {
-            $chunk = fread($this->stream, 1);
-            if ($chunk === false || $chunk === '') {
-                if (feof($this->stream)) {
-                    return $buffer === '' ? null : $buffer;
-                }
-                continue;
-            }
-            if ($chunk === "\0") {
-                return $buffer;
+            // Reads up to (and consuming) the NUL terminator, so a batch of pipelined
+            // commands is split correctly and only one command is taken per call
+            $chunk = @stream_get_line($this->stream, self::READ_CHUNK_BYTES, "\0");
+            if ($chunk === false) {
+                // EOF, or the timeout elapsed with no terminator in sight: either way the
+                // IDE is not talking to us any more, and a half-read command is worthless
+                $this->close();
+
+                return null;
             }
             $buffer .= $chunk;
+            if (strlen($chunk) < self::READ_CHUNK_BYTES) {
+                // A short read means the terminator (or EOF) was reached
+                return $buffer;
+            }
         }
     }
 
