@@ -16,10 +16,8 @@ use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Log;
 use ZDebug\Session\DebugSession;
 use ZDebug\Session\ExceptionBreak;
-use ZEngine\Core;
 use ZEngine\Reflection\ReflectionValue;
 use ZEngine\System\ExecutionData;
-use ZEngine\System\Hook\OpCodeHook;
 use ZEngine\System\OpCode;
 use ZEngine\Type\OpLine;
 
@@ -32,7 +30,7 @@ use ZEngine\Type\OpLine;
  * the engine carries a live exception ("Throwing from FFI callbacks is not allowed"),
  * which closes zend_throw_exception_hook and a CATCH handler to userland for good. The
  * handler inspects the throwable in op1, suspends the session if a breakpoint matches,
- * and always returns ZEND_USER_OPCODE_DISPATCH so the throw then proceeds untouched.
+ * and the envelope then returns ZEND_USER_OPCODE_DISPATCH so the throw proceeds untouched.
  *
  * Coverage gap, by design: only a *userland* `throw` compiles to a THROW opline. Throws
  * raised inside internal/C functions and engine-generated errors (TypeError,
@@ -41,73 +39,32 @@ use ZEngine\Type\OpLine;
  * zdebug side can surface them. Same compile-order caveat as the statement hook: the
  * throwing op_array must have been compiled after the handler was installed.
  *
- * The two AGENTS.md invariants apply exactly as in StatementHook: the shared HookLatch is
- * checked first (a separate latch would let the two hooks re-enter through each other),
- * and no \Throwable may escape the FFI callback.
+ * The latch/never-throw envelope is EngineHook's; see it for the two AGENTS.md invariants.
  */
-final class ThrowHook
+final class ThrowHook extends EngineHook
 {
-    private ?OpCodeHook $hook = null;
-
-    /** @var (callable(): ?DebugSession)|null */
-    private $sessionResolver;
-
     public function __construct(
         private readonly BreakpointRegistry $breakpoints,
-        private readonly Log $log,
-    ) {}
-
-    /**
-     * Installs the handler. The session is resolved lazily so it can be attached later.
-     *
-     * @param callable(): ?DebugSession $sessionResolver
-     */
-    public function install(callable $sessionResolver): void
-    {
-        $this->sessionResolver = $sessionResolver;
-        $this->hook            = OpCode::setHandler(OpCode::THROW, fn($scope): int => $this->onThrow($scope));
+        Log $log,
+    ) {
+        parent::__construct($log);
     }
 
-    public function uninstall(): void
+    protected function opCode(): int
     {
-        $this->hook?->uninstall();
-        $this->hook = null;
+        return OpCode::THROW;
     }
 
     /**
-     * @param mixed $scope The ExecutionData the engine passes (typed loosely for the handler contract)
+     * Fast path for the overwhelmingly common case: one array check per throw, and the
+     * session is not even resolved when no exception breakpoint exists
      */
-    private function onThrow($scope): int
+    protected function isRelevant(): bool
     {
-        // (1) Reentrancy latch FIRST: everything below is instrumented PHP, and the break
-        // loop it may enter runs arbitrary debugger code that throws on its own.
-        if (!HookLatch::tryEnter()) {
-            return Core::ZEND_USER_OPCODE_DISPATCH;
-        }
-        try {
-            if (!$scope instanceof ExecutionData) {
-                return Core::ZEND_USER_OPCODE_DISPATCH;
-            }
-            if (!$this->breakpoints->hasExceptionBreakpoints()) {
-                // Fast path: the overwhelmingly common case, one array check per throw
-                return Core::ZEND_USER_OPCODE_DISPATCH;
-            }
-            $session = $this->sessionResolver !== null ? ($this->sessionResolver)() : null;
-            if ($session === null || !$session->isLive()) {
-                return Core::ZEND_USER_OPCODE_DISPATCH;
-            }
-            $this->evaluate($scope, $session);
-        } catch (\Throwable $error) {
-            // (2) Nothing escapes the FFI callback
-            $this->log->exception($error);
-        } finally {
-            HookLatch::leave();
-        }
-
-        return Core::ZEND_USER_OPCODE_DISPATCH;
+        return $this->breakpoints->hasExceptionBreakpoints();
     }
 
-    private function evaluate(ExecutionData $frame, DebugSession $session): void
+    protected function checkForBreak(ExecutionData $frame, DebugSession $session): void
     {
         $thrown = self::thrownValue($frame);
         if ($thrown === null) {

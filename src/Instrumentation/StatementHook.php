@@ -20,92 +20,42 @@ use ZDebug\Log;
 use ZDebug\Session\ConditionEvaluator;
 use ZDebug\Session\DebugSession;
 use ZDebug\Stepping\StepController;
-use ZEngine\Core;
 use ZEngine\System\ExecutionData;
-use ZEngine\System\Hook\OpCodeHook;
 use ZEngine\System\OpCode;
 
 /**
  * The EXT_STMT opcode handler: the point where the debuggee is inspected and suspended
  *
  * Compiling with COMPILE_EXTENDED_STMT emits an EXT_STMT opline before every statement;
- * this handler runs on each. It is a raw FFI callback, so the two invariants from
- * AGENTS.md are absolute: (1) the shared HookLatch is checked first, because the
- * debugger's own PHP would otherwise recurse into this very handler (or into the THROW
- * handler, which is why the latch is shared rather than per-hook), and (2) nothing may
- * throw - the whole body is wrapped, and only the closure-safe frame API is used.
+ * this handler runs on each. The latch/never-throw envelope it runs inside belongs to
+ * EngineHook; what is left here is the break decision alone, and it is still on the
+ * hottest path in the process - hence the gate memoization, the breakpoint index and the
+ * lazily materialized locals below.
  */
-final class StatementHook
+final class StatementHook extends EngineHook
 {
-    private ?OpCodeHook $hook = null;
-
-    /** @var (callable(): ?DebugSession)|null */
-    private $sessionResolver;
-
     private readonly StackCollector $stack;
 
     public function __construct(
         private readonly OpArrayGate $gate,
         private readonly BreakpointRegistry $breakpoints,
         private readonly StepController $stepper,
-        private readonly Log $log,
+        Log $log,
         private readonly ContextProvider $context,
         private readonly ConditionEvaluator $evaluator,
     ) {
+        parent::__construct($log);
         // A pure walker over the gate this hook already owns: the stepping depth here and
         // the frame list DebugSession builds at break time then share one implementation
         $this->stack = new StackCollector($gate);
     }
 
-    /**
-     * Installs the handler. The session is resolved lazily so it can be attached later.
-     *
-     * @param callable(): ?DebugSession $sessionResolver
-     */
-    public function install(callable $sessionResolver): void
+    protected function opCode(): int
     {
-        $this->sessionResolver = $sessionResolver;
-        $this->hook            = OpCode::setHandler(OpCode::EXT_STMT, fn($scope): int => $this->onStatement($scope));
+        return OpCode::EXT_STMT;
     }
 
-    public function uninstall(): void
-    {
-        $this->hook?->uninstall();
-        $this->hook = null;
-    }
-
-    /**
-     * @param mixed $scope The ExecutionData the engine passes (typed loosely for the handler contract)
-     */
-    private function onStatement($scope): int
-    {
-        // (1) Reentrancy latch FIRST, and engaged BEFORE any zdebug code runs: resolving
-        // the session and every check below execute instrumented PHP that would otherwise
-        // re-enter this very handler (isLive(), evaluate(), the whole break loop).
-        if (!HookLatch::tryEnter()) {
-            return Core::ZEND_USER_OPCODE_DISPATCH;
-        }
-        try {
-            if (!$scope instanceof ExecutionData) {
-                return Core::ZEND_USER_OPCODE_DISPATCH;
-            }
-            $session = $this->sessionResolver !== null ? ($this->sessionResolver)() : null;
-            if ($session === null || !$session->isLive()) {
-                // Fast path: no active debugging session
-                return Core::ZEND_USER_OPCODE_DISPATCH;
-            }
-            $this->evaluate($scope, $session);
-        } catch (\Throwable $error) {
-            // (2) Nothing escapes the FFI callback
-            $this->log->exception($error);
-        } finally {
-            HookLatch::leave();
-        }
-
-        return Core::ZEND_USER_OPCODE_DISPATCH;
-    }
-
-    private function evaluate(ExecutionData $frame, DebugSession $session): void
+    protected function checkForBreak(ExecutionData $frame, DebugSession $session): void
     {
         $decision = $this->gate->decide($frame);
         if (!$decision->observed) {
