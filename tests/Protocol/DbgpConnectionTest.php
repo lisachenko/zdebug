@@ -59,11 +59,15 @@ final class DbgpConnectionTest extends TestCase
 
     public function testReceiveReassemblesACommandLongerThanOneRead(): void
     {
-        $this->connect();
-        // Comfortably past the 8 KiB read granularity, so the line spans several reads
+        // This one case must NOT run over the socket pair: the payload exceeds the
+        // kernel's unix-socket send buffer on some platforms (macOS defaults to 8 KiB),
+        // and a single-threaded writer with no reader draining the peer deadlocks in
+        // fwrite() before receive() ever runs. A rewound in-memory stream exercises the
+        // same stream_get_line() chunking and terminator handling without a kernel
+        // buffer in the loop.
         $expression = str_repeat('x', 40_000);
         $command    = 'eval -i 1 -- ' . base64_encode("'{$expression}'");
-        fwrite($this->peer, $command . "\0");
+        $this->connectOverBuffer($command . "\0");
 
         $received = $this->connection->receive();
         $this->assertSame($command, $received);
@@ -155,5 +159,19 @@ final class DbgpConnectionTest extends TestCase
 
         $this->peer       = $peer;
         $this->connection = DbgpConnection::fromStream($debugger, $readTimeoutMs);
+    }
+
+    /**
+     * Wires the connection to a rewound in-memory stream pre-loaded with $bytes,
+     * for payloads too large to sit in a same-process socket pair's kernel buffer
+     */
+    private function connectOverBuffer(string $bytes): void
+    {
+        $stream = fopen('php://temp', 'r+b');
+        $this->assertIsResource($stream);
+        fwrite($stream, $bytes);
+        rewind($stream);
+
+        $this->connection = DbgpConnection::fromStream($stream);
     }
 }
