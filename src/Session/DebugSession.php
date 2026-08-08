@@ -82,11 +82,12 @@ final class DebugSession
      */
     public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null): void
     {
+        $snapshot             = $this->stackCollector->collect($top);
         $this->status         = SessionStatus::Break;
-        $this->suspendedStack = $this->stackCollector->collect($top);
+        $this->suspendedStack = $snapshot->frames;
 
         $this->answerPendingContinuation($exception);
-        $this->commandLoop(StackCollector::depthOf($top));
+        $this->commandLoop($snapshot->rawDepth);
 
         // Borrowed frames are only valid while suspended; drop them on resume
         $this->suspendedStack = [];

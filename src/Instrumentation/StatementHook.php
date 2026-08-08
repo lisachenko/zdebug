@@ -42,6 +42,8 @@ final class StatementHook
     /** @var (callable(): ?DebugSession)|null */
     private $sessionResolver;
 
+    private readonly StackCollector $stack;
+
     public function __construct(
         private readonly OpArrayGate $gate,
         private readonly BreakpointRegistry $breakpoints,
@@ -49,7 +51,11 @@ final class StatementHook
         private readonly Log $log,
         private readonly ContextProvider $context,
         private readonly ConditionEvaluator $evaluator,
-    ) {}
+    ) {
+        // A pure walker over the gate this hook already owns: the stepping depth here and
+        // the frame list DebugSession builds at break time then share one implementation
+        $this->stack = new StackCollector($gate);
+    }
 
     /**
      * Installs the handler. The session is resolved lazily so it can be attached later.
@@ -109,7 +115,7 @@ final class StatementHook
         $shouldBreak = false;
 
         if ($this->stepper->isStepping()) {
-            $depth       = $this->stepper->needsDepth() ? StackCollector::depthOf($frame) : 0;
+            $depth       = $this->stepper->needsDepth() ? $this->stack->collect($frame)->rawDepth : 0;
             $shouldBreak = $this->stepper->shouldBreak($depth);
         }
 
