@@ -130,6 +130,17 @@ final class DebugSession implements SuspendedState
         }
     }
 
+    /**
+     * Closes the DBGp transport
+     *
+     * Idempotent and safe at any point of the lifecycle - including a session whose IDE
+     * already dropped the socket - so a teardown path can always call it unconditionally.
+     */
+    public function close(): void
+    {
+        $this->connection->close();
+    }
+
     public function status(): SessionStatus
     {
         return $this->status;
