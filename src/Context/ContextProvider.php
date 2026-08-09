@@ -48,6 +48,41 @@ final class ContextProvider
     }
 
     /**
+     * The LIVE slot a context's base variable occupies, for property_set to write through
+     *
+     * Everything else in this class hands out materialized copies; this is the one
+     * accessor that returns the engine's own zval, borrowed and valid only while the
+     * frame is suspended. `$this` is deliberately not writable: rebinding the object a
+     * method runs against is not an edit of a variable, it is a different program.
+     *
+     * A declared-but-unset local still has a CV slot and is returned, so an IDE can give
+     * a value to a variable the debuggee has not assigned yet.
+     */
+    public function slot(StackFrame $frame, int $contextId, string $baseName): ?ReflectionValue
+    {
+        $name = ltrim($baseName, '$');
+        if ($name === '' || $name === 'this') {
+            return null;
+        }
+
+        if ($contextId === self::CONTEXT_SUPERGLOBALS) {
+            return in_array($name, self::SUPERGLOBAL_NAMES, true)
+                ? Core::$executor->getGlobalSymbolTable()->find($name)
+                : null;
+        }
+        if ($contextId !== self::CONTEXT_LOCALS) {
+            return null;
+        }
+
+        try {
+            return $frame->execution->getLocalVariable($name);
+        } catch (\OutOfBoundsException) {
+            // No compiled variable of that name in this frame: not a slot we can write
+            return null;
+        }
+    }
+
+    /**
      * Materializes the locals of a live frame, keyed as '$name'
      *
      * Used by the statement hook to build the scope a breakpoint condition is evaluated

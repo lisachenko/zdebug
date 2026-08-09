@@ -22,7 +22,7 @@ on PHP 8.5) and Composer resolves the matching one for the running PHP.
 
 ## The one hard rule: never throw inside an engine callback
 
-The EXT_STMT / THROW / interrupt handlers run inside FFI callbacks. A `\Throwable` that
+The EXT_STMT / THROW / RETURN / interrupt handlers run inside FFI callbacks. A `\Throwable` that
 escapes one is a **fatal engine abort** ("Throwing from FFI callbacks is not allowed"),
 not a catchable error. Every handler entry point therefore:
 

@@ -138,9 +138,12 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Stack traces | ✅ | Full `getPrevious()` walk, with call sites |
 | Locals, args, `$this` | ✅ | Named, from CV slots — no symbol table needed |
 | Superglobals | ✅ | From the engine global symbol table |
-| Variable inspection (`property_get`) | ✅ | Expand any node by its `fullname` (`$e->previous->message`, `$rows[3]['id']`), `-p` paging, `-m` / `property_value` for untruncated data |
+| Variable inspection (`property_get`) | ✅ | Expand any node by its `fullname` (`$e->previous->message`, `$rows[3]['id']`), `-p` paging, `-m` / `property_value` for untruncated data, `facet` visibility |
+| Editing variables (`property_set`) | ✅ | Writes through to the live frame; existing paths only, and a write the engine refuses (readonly, type mismatch) answers `success="0"` |
 | `eval` in frame | ✅ | Read-only: evaluated against the locals of the frame selected by `-d` |
 | Exception breakpoints | 🚧 | First-chance via the `THROW` opcode — M3 |
+| Call / return breakpoints | ✅ | `-t call` on the function's first statement, `-t return` on its `RETURN` opline; `-m` takes `fn`, `Class::fn` or `Class->fn` |
+| `source`, `stack_depth`, `typemap_get`, `breakpoint_update` | ✅ | `source` reads only within `ZDEBUG_PATH_FILTER` — a DBGp socket is not a filesystem |
 | Attach to already-running code | ❌ | Only code compiled after attach is steppable |
 | Opcache-cached scripts | ❌ | Invisible unless the cache is cold |
 | Profiling / tracing / coverage | ❌ | The engine's observer API can't be enabled from userland ([z-engine #106](https://github.com/lisachenko/z-engine/pull/106)) |

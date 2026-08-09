@@ -16,8 +16,9 @@ namespace ZDebug\Breakpoint;
  * In-memory breakpoint store, indexed for fast per-statement lookup
  *
  * Line breakpoints are indexed by [file][line] so the statement hook's hot path is a
- * pair of isset() checks. Exception breakpoints are kept in a small list matched by
- * class name. Every breakpoint also lives in a by-id map for breakpoint_remove/update.
+ * pair of isset() checks. Exception and call/return breakpoints are kept in small lists
+ * matched by class or function name. Every breakpoint also lives in a by-id map for
+ * breakpoint_get/update/remove.
  */
 final class BreakpointRegistry
 {
@@ -30,6 +31,12 @@ final class BreakpointRegistry
     /** @var list<Breakpoint> */
     private array $exceptionBreakpoints = [];
 
+    /** @var list<Breakpoint> */
+    private array $callBreakpoints = [];
+
+    /** @var list<Breakpoint> */
+    private array $returnBreakpoints = [];
+
     private int $nextId = 1;
 
     public function add(Breakpoint $breakpoint): Breakpoint
@@ -39,9 +46,35 @@ final class BreakpointRegistry
             $this->byLocation[$breakpoint->file][$breakpoint->line][] = $breakpoint;
         } elseif ($breakpoint->type === BreakpointType::Exception) {
             $this->exceptionBreakpoints[] = $breakpoint;
+        } elseif ($breakpoint->type === BreakpointType::Call) {
+            $this->callBreakpoints[] = $breakpoint;
+        } elseif ($breakpoint->type === BreakpointType::Return) {
+            $this->returnBreakpoints[] = $breakpoint;
         }
 
         return $breakpoint;
+    }
+
+    /**
+     * Moves a line breakpoint to another line, keeping the location index consistent
+     *
+     * breakpoint_update may change `-n`, and the line is a key of the index the statement
+     * hook reads on its hot path: assigning the field alone would leave the breakpoint
+     * firing on its old line forever. A breakpoint that is not indexed by location (an
+     * exception or call/return one) simply records the new line.
+     */
+    public function relocate(Breakpoint $breakpoint, int $line): void
+    {
+        $file = $breakpoint->file;
+        if (!$breakpoint->isLineType() || $file === null || $breakpoint->line === null) {
+            $breakpoint->line = $line;
+
+            return;
+        }
+
+        $this->unindexLine($breakpoint, $file, $breakpoint->line);
+        $breakpoint->line                 = $line;
+        $this->byLocation[$file][$line][] = $breakpoint;
     }
 
     public function nextId(): int
@@ -63,26 +96,44 @@ final class BreakpointRegistry
         unset($this->byId[$id]);
 
         if ($breakpoint->isLineType() && $breakpoint->file !== null && $breakpoint->line !== null) {
-            $bucket    = $this->byLocation[$breakpoint->file][$breakpoint->line] ?? [];
-            $remaining = array_values(
-                array_filter($bucket, static fn(Breakpoint $candidate): bool => $candidate->id !== $id),
-            );
-            if ($remaining === []) {
-                // Drop the empty line (and file) buckets so hasLineBreakpoints() stays accurate
-                unset($this->byLocation[$breakpoint->file][$breakpoint->line]);
-                if ($this->byLocation[$breakpoint->file] === []) {
-                    unset($this->byLocation[$breakpoint->file]);
-                }
-            } else {
-                $this->byLocation[$breakpoint->file][$breakpoint->line] = $remaining;
-            }
+            $this->unindexLine($breakpoint, $breakpoint->file, $breakpoint->line);
         } else {
-            $this->exceptionBreakpoints = array_values(
-                array_filter($this->exceptionBreakpoints, static fn(Breakpoint $candidate): bool => $candidate->id !== $id),
-            );
+            $this->exceptionBreakpoints = self::without($this->exceptionBreakpoints, $id);
+            $this->callBreakpoints      = self::without($this->callBreakpoints, $id);
+            $this->returnBreakpoints    = self::without($this->returnBreakpoints, $id);
         }
 
         return true;
+    }
+
+    /**
+     * Drops a breakpoint from the [file][line] index, pruning the buckets it empties
+     */
+    private function unindexLine(Breakpoint $breakpoint, string $file, int $line): void
+    {
+        $remaining = self::without($this->byLocation[$file][$line] ?? [], $breakpoint->id);
+        if ($remaining !== []) {
+            $this->byLocation[$file][$line] = $remaining;
+
+            return;
+        }
+
+        // Drop the empty line (and file) buckets so hasLineBreakpoints() stays accurate
+        unset($this->byLocation[$file][$line]);
+        if ($this->byLocation[$file] === []) {
+            unset($this->byLocation[$file]);
+        }
+    }
+
+    /**
+     * @param  list<Breakpoint> $breakpoints
+     * @return list<Breakpoint>
+     */
+    private static function without(array $breakpoints, int $id): array
+    {
+        return array_values(
+            array_filter($breakpoints, static fn(Breakpoint $candidate): bool => $candidate->id !== $id),
+        );
     }
 
     /**
@@ -155,6 +206,91 @@ final class BreakpointRegistry
         }
 
         return $matches;
+    }
+
+    /**
+     * Whether any call breakpoint is registered (the statement hook's entry-detection gate)
+     */
+    public function hasCallBreakpoints(): bool
+    {
+        return $this->callBreakpoints !== [];
+    }
+
+    /**
+     * Whether any return breakpoint is registered (fast global gate for the RETURN hook)
+     */
+    public function hasReturnBreakpoints(): bool
+    {
+        return $this->returnBreakpoints !== [];
+    }
+
+    /**
+     * The enabled call breakpoints matching a function being entered
+     *
+     * @return list<Breakpoint>
+     */
+    public function forCall(string $functionName, ?string $className): array
+    {
+        return self::matchingFunction($this->callBreakpoints, $functionName, $className);
+    }
+
+    /**
+     * The enabled return breakpoints matching a function being left
+     *
+     * @return list<Breakpoint>
+     */
+    public function forReturn(string $functionName, ?string $className): array
+    {
+        return self::matchingFunction($this->returnBreakpoints, $functionName, $className);
+    }
+
+    /**
+     * Matches a frame's function against the `-m` names of function breakpoints
+     *
+     * DBGp only defines `-m FUNCTION`, and clients spell a method in it three different
+     * ways ("tick", "Counter::tick", "Counter->tick"), so the name is compared segment by
+     * segment: the method part always has to match, the class part only when the client
+     * supplied one AND the frame has a bound object to compare it against. A static method
+     * (no `$this`) therefore matches on its method name alone rather than never matching -
+     * the failure mode of a too-narrow comparison is a breakpoint that silently never
+     * fires, which is far worse to debug than one that fires once too often.
+     *
+     * @param  list<Breakpoint> $breakpoints
+     * @return list<Breakpoint>
+     */
+    private static function matchingFunction(array $breakpoints, string $functionName, ?string $className): array
+    {
+        $matches = [];
+        foreach ($breakpoints as $breakpoint) {
+            if (!$breakpoint->enabled || $breakpoint->functionName === null) {
+                continue;
+            }
+            [$wantedClass, $wantedFunction] = self::splitFunctionName($breakpoint->functionName);
+            if (strcasecmp($wantedFunction, $functionName) !== 0) {
+                continue;
+            }
+            if ($wantedClass !== null && $className !== null && !is_a($className, $wantedClass, true)) {
+                continue;
+            }
+            $matches[] = $breakpoint;
+        }
+
+        return $matches;
+    }
+
+    /**
+     * @return array{string|null, string} [class part or null, function part]
+     */
+    private static function splitFunctionName(string $name): array
+    {
+        foreach (['::', '->'] as $separator) {
+            $position = strrpos($name, $separator);
+            if ($position !== false) {
+                return [substr($name, 0, $position), substr($name, $position + strlen($separator))];
+            }
+        }
+
+        return [null, $name];
     }
 
     /**

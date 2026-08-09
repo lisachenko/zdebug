@@ -31,15 +31,20 @@ enum DbgpCommand: string
 
     case BreakpointSet    = 'breakpoint_set';
     case BreakpointGet    = 'breakpoint_get';
+    case BreakpointUpdate = 'breakpoint_update';
     case BreakpointRemove = 'breakpoint_remove';
     case BreakpointList   = 'breakpoint_list';
 
+    case StackDepth   = 'stack_depth';
     case StackGet     = 'stack_get';
     case ContextNames = 'context_names';
     case ContextGet   = 'context_get';
+    case TypemapGet   = 'typemap_get';
+    case Source       = 'source';
     case Eval         = 'eval';
 
     case PropertyGet   = 'property_get';
+    case PropertySet   = 'property_set';
     case PropertyValue = 'property_value';
 
     case Run      = 'run';

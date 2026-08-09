@@ -27,9 +27,6 @@ namespace ZDebug\Context;
  */
 final class PropertyPath
 {
-    private const string STEP_PROPERTY = 'property';
-    private const string STEP_INDEX    = 'index';
-
     /**
      * Looks a fullname up in a context, or returns null when it addresses nothing
      *
@@ -46,22 +43,21 @@ final class PropertyPath
         if ($parsed === null) {
             return null;
         }
-        [$base, $steps] = $parsed;
 
-        $key = array_key_exists($base, $variables) ? $base : '$' . ltrim($base, '$');
+        $key = array_key_exists($parsed->base, $variables) ? $parsed->base : '$' . $parsed->baseName();
         if (!array_key_exists($key, $variables)) {
             return null;
         }
 
         $value = $variables[$key];
-        $name  = $base;
-        foreach ($steps as [$kind, $step]) {
-            $resolved = self::step($value, $kind, $step);
+        $name  = $parsed->base;
+        foreach ($parsed->steps as $step) {
+            $resolved = self::step($value, $step);
             if ($resolved === null) {
                 return null;
             }
             $value = $resolved[0];
-            $name  = $step;
+            $name  = $step->key;
         }
 
         return new PropertyReference($name, $path, $value);
@@ -75,33 +71,35 @@ final class PropertyPath
      *
      * @return array{mixed}|null
      */
-    private static function step(mixed $value, string $kind, string $step): ?array
+    private static function step(mixed $value, PropertyStep $step): ?array
     {
-        if ($kind === self::STEP_PROPERTY) {
+        if (!$step->isIndex) {
             if (!is_object($value)) {
                 return null;
             }
             $properties = ObjectProperties::of($value);
 
-            return array_key_exists($step, $properties) ? [$properties[$step]] : null;
+            return array_key_exists($step->key, $properties) ? [$properties[$step->key]] : null;
         }
 
         // An array subscript: PHP normalizes a canonical numeric string key to an int on
         // lookup, so "[7]" finds the int key 7 without any casting here
-        if (!is_array($value) || !array_key_exists($step, $value)) {
+        if (!is_array($value) || !array_key_exists($step->key, $value)) {
             return null;
         }
 
-        return [$value[$step]];
+        return [$value[$step->key]];
     }
 
     /**
      * Splits a fullname into its base variable and the steps taken from it
      *
-     * @return array{string, list<array{string, string}>}|null
+     * Public because property_set needs the same split without the read: it resolves the
+     * base to a live engine slot rather than to a materialized copy.
      */
-    private static function parse(string $path): ?array
+    public static function parse(string $fullName): ?ParsedPath
     {
+        $path   = trim($fullName);
         $length = strlen($path);
         $base   = '';
         $steps  = [];
@@ -114,7 +112,7 @@ final class PropertyPath
                 if ($close === false) {
                     return null;
                 }
-                $steps[] = [self::STEP_INDEX, self::unquote(substr($path, $index + 1, $close - $index - 1))];
+                $steps[] = PropertyStep::index(self::unquote(substr($path, $index + 1, $close - $index - 1)));
                 $index   = $close + 1;
                 continue;
             }
@@ -129,7 +127,7 @@ final class PropertyPath
                 if ($name === '') {
                     return null;
                 }
-                $steps[] = [self::STEP_PROPERTY, self::unquote($name)];
+                $steps[] = PropertyStep::property(self::unquote($name));
                 continue;
             }
 
@@ -141,7 +139,7 @@ final class PropertyPath
             $index++;
         }
 
-        return $base === '' ? null : [$base, $steps];
+        return $base === '' ? null : new ParsedPath($base, $steps);
     }
 
     /**

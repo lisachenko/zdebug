@@ -18,6 +18,8 @@ use ZDebug\Breakpoint\BreakpointType;
 use ZDebug\Context\ContextProvider;
 use ZDebug\Context\PropertyPath;
 use ZDebug\Context\PropertySerializer;
+use ZDebug\Context\PropertyWriter;
+use ZDebug\Context\SourceReader;
 use ZDebug\Protocol\Command;
 use ZDebug\Protocol\DbgpCommand;
 use ZDebug\Protocol\ErrorCode;
@@ -46,6 +48,7 @@ final class CommandDispatcher
         private readonly ContextProvider $context,
         private readonly ResponseBuilder $xml,
         private readonly ConditionEvaluator $evaluator,
+        private readonly SourceReader $source,
     ) {}
 
     public function dispatch(Command $command): DispatchResult
@@ -67,13 +70,18 @@ final class CommandDispatcher
             DbgpCommand::FeatureSet       => $this->featureSet($command),
             DbgpCommand::BreakpointSet    => $this->breakpointSet($command),
             DbgpCommand::BreakpointGet    => $this->breakpointGet($command),
+            DbgpCommand::BreakpointUpdate => $this->breakpointUpdate($command),
             DbgpCommand::BreakpointRemove => $this->breakpointRemove($command),
             DbgpCommand::BreakpointList   => $this->breakpointList($command),
+            DbgpCommand::StackDepth       => $this->stackDepth($command),
             DbgpCommand::StackGet         => $this->stackGet($command),
             DbgpCommand::ContextNames     => $this->contextNames($command),
             DbgpCommand::ContextGet       => $this->contextGet($command),
+            DbgpCommand::TypemapGet       => $this->typemapGet($command),
+            DbgpCommand::Source           => $this->source($command),
             DbgpCommand::PropertyGet      => $this->propertyGet($command, $this->requestedMaxData($command)),
             DbgpCommand::PropertyValue    => $this->propertyGet($command, self::UNLIMITED_DATA),
+            DbgpCommand::PropertySet      => $this->propertySet($command),
             DbgpCommand::Eval             => $this->evaluate($command),
             DbgpCommand::Run              => DispatchResult::continuation(ResumeMode::Run),
             DbgpCommand::StepInto         => DispatchResult::continuation(ResumeMode::StepInto),
@@ -147,6 +155,24 @@ final class CommandDispatcher
 
         $id = $this->breakpoints->nextId();
 
+        if ($type === BreakpointType::Call || $type === BreakpointType::Return) {
+            $functionName = trim((string) $command->argument('m', ''));
+            if ($functionName === '') {
+                return $this->error($command, ErrorCode::BreakpointInvalid, "A {$type->value} breakpoint requires a function name in -m");
+            }
+            $this->breakpoints->add(new Breakpoint(
+                id: $id,
+                type: $type,
+                enabled: $enabled,
+                functionName: $functionName,
+                temporary: $command->argument('r') === '1',
+                hitValue: $hitValue,
+                hitCondition: $hitCondition,
+            ));
+
+            return $this->breakpointAck($command, $id, $enabled);
+        }
+
         if ($type === BreakpointType::Exception) {
             $this->breakpoints->add(new Breakpoint(
                 id: $id,
@@ -191,6 +217,51 @@ final class CommandDispatcher
         ]);
     }
 
+    /**
+     * breakpoint_update: changes a registered breakpoint in place, keeping its id
+     *
+     * The IDE sends this instead of remove+set when the user toggles a breakpoint, drags
+     * it to another line or edits its hit condition, and expects the id (and with it the
+     * accumulated hit count) to survive. Only the four fields DBGp allows are writable;
+     * `-n` goes through the registry because the line is an index key, not just a field.
+     */
+    private function breakpointUpdate(Command $command): DispatchResult
+    {
+        $id         = $command->intArgument('d');
+        $breakpoint = $id !== null ? $this->breakpoints->get($id) : null;
+        if ($breakpoint === null) {
+            return $this->error($command, ErrorCode::BreakpointDoesNotExist, 'No such breakpoint');
+        }
+
+        $state = $command->argument('s');
+        if ($state !== null) {
+            if ($state !== 'enabled' && $state !== 'disabled') {
+                return $this->error($command, ErrorCode::BreakpointStateInvalid, "Unsupported breakpoint state '{$state}'");
+            }
+            $breakpoint->enabled = $state === 'enabled';
+        }
+
+        $hitCondition = $command->argument('o');
+        if ($hitCondition !== null) {
+            if (!in_array($hitCondition, Breakpoint::HIT_CONDITIONS, true)) {
+                return $this->error($command, ErrorCode::BreakpointInvalid, "Unsupported hit condition '{$hitCondition}'");
+            }
+            $breakpoint->hitCondition = $hitCondition;
+        }
+
+        $hitValue = $command->intArgument('h');
+        if ($hitValue !== null) {
+            $breakpoint->hitValue = max(0, $hitValue);
+        }
+
+        $line = $command->intArgument('n');
+        if ($line !== null) {
+            $this->breakpoints->relocate($breakpoint, $line);
+        }
+
+        return $this->body($command, ResponseBuilder::breakpoint($breakpoint));
+    }
+
     private function breakpointRemove(Command $command): DispatchResult
     {
         $id = $command->intArgument('d');
@@ -220,6 +291,17 @@ final class CommandDispatcher
         }
 
         return $this->body($command, $body);
+    }
+
+    /**
+     * stack_depth: how many frames stack_get would report
+     *
+     * Clients call it to size their call-stack panel before fetching frames, and while
+     * nothing is suspended the honest answer is zero rather than an error.
+     */
+    private function stackDepth(Command $command): DispatchResult
+    {
+        return $this->reply($command, ['depth' => (string) count($this->state->suspendedStack())]);
     }
 
     private function stackGet(Command $command): DispatchResult
@@ -270,6 +352,60 @@ final class CommandDispatcher
     }
 
     /**
+     * typemap_get: how this engine's property types map onto the protocol's own
+     *
+     * A DBGp client uses the map to render a `type="int"` property as a number rather
+     * than as a string it happens to be able to parse. The `type` column is the exact
+     * spelling PropertySerializer puts on its <property> elements, so what the map
+     * promises and what the properties carry cannot drift apart.
+     */
+    private function typemapGet(Command $command): DispatchResult
+    {
+        return DispatchResult::reply($this->xml->response(
+            $command->name,
+            $command->transactionId,
+            ResponseBuilder::SCHEMA_NAMESPACES,
+            ResponseBuilder::typeMap(),
+        ));
+    }
+
+    /**
+     * source: hands the IDE the code it is stopped in
+     *
+     * Needed whenever the IDE's copy of a file is not the one executing - remote
+     * debugging, a container path, sources that were never checked out locally. -f
+     * defaults to the file of the frame selected by -d, so "show me where I am" is a
+     * one-argument command; -b / -e select an inclusive line range.
+     *
+     * A file outside the debugger's path filter, or one that cannot be read, is answered
+     * with DBGp error 100 rather than an empty success - "I will not show you this" and
+     * "this file is empty" are different answers to an IDE.
+     */
+    private function source(Command $command): DispatchResult
+    {
+        $fileUri = $command->argument('f');
+        if ($fileUri === null || $fileUri === '') {
+            $frame = $this->state->frameAtLevel($command->intArgument('d', 0) ?? 0);
+            if ($frame === null) {
+                return $this->error($command, ErrorCode::CannotOpenFile, 'source requires -f when no frame is suspended');
+            }
+            $path = $frame->file;
+        } else {
+            $path = FileUri::toPath($fileUri);
+        }
+
+        $contents = $this->source->read($path, $command->intArgument('b'), $command->intArgument('e'));
+        if ($contents === null) {
+            return $this->error($command, ErrorCode::CannotOpenFile, "Cannot read source of '{$path}'");
+        }
+
+        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
+            'success'  => '1',
+            'encoding' => 'base64',
+        ], '<![CDATA[' . base64_encode($contents) . ']]>'));
+    }
+
+    /**
      * property_get / property_value: expands one variable of a suspended frame
      *
      * This is the other half of context_get. A context is rendered one level deep - deeper
@@ -313,6 +449,84 @@ final class CommandDispatcher
         );
 
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+    }
+
+    /**
+     * property_set: writes a value back into the suspended debuggee
+     *
+     * The only command that changes the program rather than describing it, which is why
+     * every step is a refusal by default: the base variable has to be a real CV slot of
+     * the selected frame (or a superglobal), each intermediate step has to exist already,
+     * and a write the engine rejects - a readonly property, a typed property the value
+     * does not fit - comes back as success="0" rather than as a broken debuggee.
+     *
+     * The new value arrives base64-encoded in the data part. `-t` names its type; without
+     * it the type of whatever is there now is kept, which is what an IDE relies on when
+     * the user edits an int in the variables panel and types digits.
+     */
+    private function propertySet(Command $command): DispatchResult
+    {
+        $fullName = trim((string) $command->argument('n', ''));
+        if ($fullName === '') {
+            return $this->error($command, ErrorCode::InvalidOptions, 'property_set requires a property name in -n');
+        }
+
+        $path = PropertyPath::parse($fullName);
+        if ($path === null) {
+            return $this->error($command, ErrorCode::PropertyDoesNotExist, "'{$fullName}' does not address a property");
+        }
+
+        $contextId = $command->intArgument('c', ContextProvider::CONTEXT_LOCALS) ?? ContextProvider::CONTEXT_LOCALS;
+        $depth     = $command->intArgument('d', 0)                               ?? 0;
+        $frame     = $this->state->frameAtLevel($depth);
+        if ($frame === null) {
+            return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
+        }
+
+        $slot = $this->context->slot($frame, $contextId, $path->base);
+        if ($slot === null) {
+            return $this->error($command, ErrorCode::PropertyDoesNotExist, "'{$path->base}' is not a writable variable of this frame");
+        }
+
+        // A path with steps must already address something: "does not exist" is error 300,
+        // and only a path that DOES exist may come back as a refused (success="0") write.
+        // A bare variable is exempt on purpose - a declared-but-unset local has a slot to
+        // write and no value to resolve, and giving it one is a legitimate edit
+        $current = PropertyPath::resolve($this->context->variables($frame, $contextId), $fullName);
+        if ($path->steps !== [] && $current === null) {
+            return $this->error($command, ErrorCode::PropertyDoesNotExist, "No such property '{$fullName}'");
+        }
+
+        $value   = self::coerce($command->data ?? '', $command->argument('t'), $current?->value);
+        $written = PropertyWriter::write($slot, $path->steps, $value);
+
+        return $this->reply($command, ['success' => $written ? '1' : '0']);
+    }
+
+    /**
+     * Turns the raw bytes of a property_set into the PHP value to store
+     *
+     * `-t` is the client's declared type; when it is absent the type currently at that
+     * path is kept, so editing a variable in the IDE does not silently turn an int into
+     * the string "42". An unknown type name falls through to the raw string rather than
+     * being rejected: the bytes the client sent are still the closest thing to its intent.
+     */
+    private static function coerce(string $raw, ?string $declaredType, mixed $current): mixed
+    {
+        $type = $declaredType ?? match (true) {
+            is_bool($current)  => 'bool',
+            is_int($current)   => 'int',
+            is_float($current) => 'float',
+            default            => 'string',
+        };
+
+        return match ($type) {
+            'bool', 'boolean' => !in_array(strtolower(trim($raw)), ['', '0', 'false', 'off', 'no'], true),
+            'int', 'integer'  => (int) $raw,
+            'float', 'double' => (float) $raw,
+            'null'            => null,
+            default           => $raw,
+        };
     }
 
     /**

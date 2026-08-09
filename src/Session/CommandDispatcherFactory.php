@@ -14,6 +14,8 @@ namespace ZDebug\Session;
 
 use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Context\ContextProvider;
+use ZDebug\Context\SourceReader;
+use ZDebug\Instrumentation\FileFilter;
 use ZDebug\Protocol\ResponseBuilder;
 
 /**
@@ -32,6 +34,7 @@ final class CommandDispatcherFactory
         private readonly ContextProvider $context,
         private readonly ResponseBuilder $xml,
         private readonly ConditionEvaluator $evaluator = new ConditionEvaluator(),
+        private readonly SourceReader $source = new SourceReader(new FileFilter([])),
     ) {}
 
     public function create(SuspendedState $state): CommandDispatcher
@@ -43,6 +46,7 @@ final class CommandDispatcherFactory
             $this->context,
             $this->xml,
             $this->evaluator,
+            $this->source,
         );
     }
 }

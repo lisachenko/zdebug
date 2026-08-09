@@ -14,15 +14,18 @@ namespace ZDebug;
 
 use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Context\ContextProvider;
+use ZDebug\Context\SourceReader;
 use ZDebug\Context\StackCollector;
 use ZDebug\Instrumentation\FileFilter;
 use ZDebug\Instrumentation\OpArrayGate;
+use ZDebug\Instrumentation\ReturnHook;
 use ZDebug\Instrumentation\StatementHook;
 use ZDebug\Instrumentation\ThrowHook;
 use ZDebug\Protocol\DbgpConnection;
 use ZDebug\Protocol\FileUri;
 use ZDebug\Protocol\ResponseBuilder;
 use ZDebug\Runtime\ZDebugModule;
+use ZDebug\Session\CommandDispatcherFactory;
 use ZDebug\Session\ConditionEvaluator;
 use ZDebug\Session\DebugSession;
 use ZDebug\Session\Features;
@@ -66,6 +69,8 @@ final class Debugger
         private readonly StatementHook $statementHook,
         private readonly ContextProvider $context,
         private readonly ThrowHook $throwHook,
+        private readonly ReturnHook $returnHook,
+        private readonly SourceReader $sourceReader,
     ) {}
 
     /**
@@ -98,8 +103,20 @@ final class Debugger
         $context     = new ContextProvider();
         $hook        = new StatementHook($gate, $breakpoints, $stepper, $log, $context, new ConditionEvaluator());
         $throwHook   = new ThrowHook($breakpoints, $log);
+        $returnHook  = new ReturnHook($gate, $breakpoints, $log);
 
-        $debugger = new self($config, $log, $breakpoints, $stepper, $collector, $hook, $context, $throwHook);
+        $debugger = new self(
+            $config,
+            $log,
+            $breakpoints,
+            $stepper,
+            $collector,
+            $hook,
+            $context,
+            $throwHook,
+            $returnHook,
+            new SourceReader($filter),
+        );
 
         if ($config->isEnabled() && !$debugger->boot()) {
             // Booting failed and rolled itself back: publish nothing, stay out of the way
@@ -135,6 +152,7 @@ final class Debugger
     public function detach(): void
     {
         // LIFO, mirroring the installation order in boot()
+        $this->returnHook->uninstall();
         $this->throwHook->uninstall();
         $this->statementHook->uninstall();
         $this->restoreCompilerOptions();
@@ -203,6 +221,9 @@ final class Debugger
         // Exception breakpoints ride the THROW opcode: the only window where a PHP callback
         // may look at an exception, since ext-ffi aborts once EG(exception) is set
         $this->throwHook->install(fn(): ?DebugSession => $this->session);
+        // Return breakpoints ride the RETURN opcode, the last instruction of the frame that
+        // is leaving - its locals and its line are still inspectable there
+        $this->returnHook->install(fn(): ?DebugSession => $this->session);
         $this->attached = true;
 
         $connection = DbgpConnection::connect(
@@ -258,15 +279,27 @@ final class Debugger
     private function openSession(DbgpConnection $connection): void
     {
         $languageVersion = PHP_VERSION;
+        $xml             = new ResponseBuilder();
+        $features        = new Features($languageVersion);
         $this->session   = new DebugSession(
             $connection,
-            new ResponseBuilder(),
-            new Features($languageVersion),
+            $xml,
+            $features,
             $this->breakpoints,
             $this->context,
             $this->stackCollector,
             $this->stepper,
             $this->log,
+            // The `source` command reads through the very filter the instrumentation uses,
+            // so the debugger never serves a file it would not have stepped through
+            new CommandDispatcherFactory(
+                $features,
+                $this->breakpoints,
+                $this->context,
+                $xml,
+                new ConditionEvaluator(),
+                $this->sourceReader,
+            ),
         );
 
         register_shutdown_function(function (): void {

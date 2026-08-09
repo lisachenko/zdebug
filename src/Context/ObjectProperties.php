@@ -29,8 +29,25 @@ namespace ZDebug\Context;
  */
 final class ObjectProperties
 {
+    public const string FACET_PUBLIC    = 'public';
+    public const string FACET_PROTECTED = 'protected';
+    public const string FACET_PRIVATE   = 'private';
+
     /**
      * The object's properties as plain name => value, most-derived declaration winning
+     *
+     * @return array<string, mixed>
+     */
+    public static function of(object $value): array
+    {
+        return array_map(
+            static fn(ObjectProperty $property): mixed => $property->value,
+            self::entries($value),
+        );
+    }
+
+    /**
+     * The object's properties with the visibility each was declared under
      *
      * A name can appear twice, when a private property is redeclared further down the
      * hierarchy: the most-derived declaration wins, i.e. the one the debuggee's own
@@ -38,18 +55,18 @@ final class ObjectProperties
      * dropped rather than renamed, because DBGp has no way to address two properties
      * under one fullname.
      *
-     * @return array<string, mixed>
+     * @return array<string, ObjectProperty>
      */
-    public static function of(object $value): array
+    public static function entries(object $value): array
     {
         $properties = [];
         $owners     = [];
         foreach ((array) $value as $key => $propertyValue) {
-            [$name, $owner] = self::demangle((string) $key, $value::class);
+            [$name, $owner, $facet] = self::demangle((string) $key, $value::class);
             if (isset($owners[$name]) && !is_subclass_of($owner, $owners[$name])) {
                 continue;
             }
-            $properties[$name] = $propertyValue;
+            $properties[$name] = new ObjectProperty($propertyValue, $facet);
             $owners[$name]     = $owner;
         }
 
@@ -57,24 +74,24 @@ final class ObjectProperties
     }
 
     /**
-     * Splits a property-table key into its plain name and the class that declares it
+     * Splits a property-table key into its name, declaring class and visibility
      *
      * Only private properties carry their declaring class in the key; public and
      * protected ones are answered with the object's own class, which is the most-derived
      * declaration possible and therefore always wins a collision.
      *
-     * @return array{string, string} [plain name, declaring class]
+     * @return array{string, string, string} [plain name, declaring class, DBGp facet]
      */
     private static function demangle(string $key, string $className): array
     {
         if (!str_starts_with($key, "\0")) {
-            return [$key, $className];
+            return [$key, $className, self::FACET_PUBLIC];
         }
         // The LAST NUL is the separator: a property name cannot contain one, while an
         // anonymous declaring class carries one inside its own mangled name
         $separator = strrpos($key, "\0");
         if ($separator === false || $separator === 0) {
-            return [ltrim($key, "\0"), $className];
+            return [ltrim($key, "\0"), $className, self::FACET_PUBLIC];
         }
 
         $owner = substr($key, 1, $separator - 1);
@@ -84,6 +101,10 @@ final class ObjectProperties
         // and with no declaring class recorded to compare against
         $isPrivate = $owner !== '*' && class_exists($owner, false);
 
-        return [$name, $isPrivate ? $owner : $className];
+        return [
+            $name,
+            $isPrivate ? $owner : $className,
+            $isPrivate ? self::FACET_PRIVATE : self::FACET_PROTECTED,
+        ];
     }
 }

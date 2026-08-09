@@ -36,6 +36,9 @@ final class StatementHook extends EngineHook
 {
     private readonly StackCollector $stack;
 
+    /** The "op_array:line" of the last statement seen on an entry line, or null */
+    private ?string $lastEntryMarker = null;
+
     public function __construct(
         private readonly OpArrayGate $gate,
         private readonly BreakpointRegistry $breakpoints,
@@ -67,6 +70,10 @@ final class StatementHook extends EngineHook
         if ($this->stepper->isStepping()) {
             $depth       = $this->stepper->needsDepth() ? $this->stack->collect($frame)->rawDepth : 0;
             $shouldBreak = $this->stepper->shouldBreak($depth);
+        }
+
+        if ($this->breakpoints->hasCallBreakpoints() && $this->enteredFunction($frame, $decision)) {
+            $shouldBreak = true;
         }
 
         if (!$shouldBreak && $this->breakpoints->hasLineBreakpoints()) {
@@ -101,6 +108,74 @@ final class StatementHook extends EngineHook
         if ($shouldBreak) {
             $session->enterBreak($frame);
         }
+    }
+
+    /**
+     * Whether this statement is a call breakpoint firing, i.e. a matching function's entry
+     *
+     * DBGp's call breakpoint is "break on entry into a new stack for function name", and
+     * the engine offers userland no function-entry event: the first EXT_STMT of an
+     * op_array is the closest thing that exists, and it is an exact one - control always
+     * enters a frame at the top of its op_array, so that statement runs once per call.
+     *
+     * Consecutive statements on that same line in the same op_array are one entry, not
+     * several (`function f() { $a = 1; $b = 2; }` written on one line), so a repeat of the
+     * previous marker is suppressed. The residual gap is the mirror image: a function
+     * whose whole body is one statement, called twice inside one expression with no other
+     * statement in between (`f(f())`), reports a single entry.
+     */
+    private function enteredFunction(ExecutionData $frame, GateDecision $decision): bool
+    {
+        $line     = $frame->getOpline()->getLine();
+        $isEntry  = $line !== 0 && $line === $this->gate->entryLine($frame);
+        $marker   = $decision->address . ':' . $line;
+        $repeated = $isEntry && $this->lastEntryMarker === $marker;
+
+        $this->lastEntryMarker = $isEntry ? $marker : null;
+        if (!$isEntry || $repeated) {
+            return false;
+        }
+
+        $matching = $this->breakpoints->forCall($decision->functionName, self::boundClass($frame));
+
+        return $this->recordHits($matching);
+    }
+
+    /**
+     * Counts a hit on every matching breakpoint and reports whether any of them suspends
+     *
+     * @param list<Breakpoint> $matching
+     */
+    private function recordHits(array $matching): bool
+    {
+        $triggered = [];
+        foreach ($matching as $breakpoint) {
+            $breakpoint->hitCount++;
+            if ($breakpoint->hitConditionSatisfied()) {
+                $triggered[] = $breakpoint;
+            }
+        }
+        $this->breakpoints->dropTemporary($triggered);
+
+        return $triggered !== [];
+    }
+
+    /**
+     * The class of the frame's bound object, for matching a "Class::method" breakpoint
+     *
+     * Null for a plain function or a static method - there is simply no object to compare
+     * against, and BreakpointRegistry treats that as "match on the method name alone".
+     */
+    private static function boundClass(ExecutionData $frame): ?string
+    {
+        $bound = $frame->getThis();
+        if ($bound === null) {
+            return null;
+        }
+        $object = null;
+        $bound->getNativeValue($object);
+
+        return is_object($object) ? $object::class : null;
     }
 
     /**

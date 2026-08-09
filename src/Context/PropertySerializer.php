@@ -48,7 +48,7 @@ final class PropertySerializer
         return $this->render($name, $fullName, $value, 0, max(0, $page));
     }
 
-    private function render(string $name, string $fullName, mixed $value, int $depth, int $page = 0): string
+    private function render(string $name, string $fullName, mixed $value, int $depth, int $page = 0, ?string $facet = null): string
     {
         [$type, $classname] = self::classify($value);
 
@@ -59,6 +59,11 @@ final class PropertySerializer
         ];
         if ($classname !== null) {
             $attributes['classname'] = $classname;
+        }
+        // Only an object's own properties have a visibility to report; array elements and
+        // frame locals are not declared under one, and DBGp has no facet to describe them
+        if ($facet !== null) {
+            $attributes['facet'] = $facet;
         }
 
         if (is_array($value) || is_object($value)) {
@@ -88,7 +93,8 @@ final class PropertySerializer
      */
     private function renderContainer(array $attributes, array|object $value, string $fullName, int $depth, int $page): string
     {
-        $children    = is_array($value) ? $value : ObjectProperties::of($value);
+        $isArray     = is_array($value);
+        $children    = $isArray ? $value : ObjectProperties::entries($value);
         $numChildren = count($children);
 
         $attributes['children']    = $numChildren > 0 ? '1' : '0';
@@ -102,9 +108,11 @@ final class PropertySerializer
         $attributes['pagesize'] = (string) $this->maxChildren;
 
         $body = '';
-        foreach (array_slice($children, $page * $this->maxChildren, $this->maxChildren, true) as $key => $childValue) {
-            [$childName, $childFullName] = self::childNames($fullName, $key, is_array($value));
-            $body .= $this->render($childName, $childFullName, $childValue, $depth + 1);
+        foreach (array_slice($children, $page * $this->maxChildren, $this->maxChildren, true) as $key => $child) {
+            [$childName, $childFullName] = self::childNames($fullName, $key, $isArray);
+            $body .= $child instanceof ObjectProperty
+                ? $this->render($childName, $childFullName, $child->value, $depth + 1, 0, $child->facet)
+                : $this->render($childName, $childFullName, $child, $depth + 1);
         }
 
         return '<property ' . ResponseBuilder::attributes($attributes) . '>' . $body . '</property>';
