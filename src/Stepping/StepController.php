@@ -34,9 +34,29 @@ final class StepController
      */
     public const int NO_FRAME_DEPTH = PHP_INT_MAX;
 
-    private ResumeMode $mode = ResumeMode::Run;
+    /** How execution was last resumed; only resume() may move it */
+    public private(set) ResumeMode $mode = ResumeMode::Run;
 
     private int $resumeDepth = 0;
+
+    /**
+     * Whether the statement hook must observe statements at all under the current mode
+     *
+     * In pure Run mode with no active stepping the hook still runs for breakpoints, but
+     * the stepper contributes nothing.
+     */
+    public bool $isStepping {
+        get => $this->mode !== ResumeMode::Run;
+    }
+
+    /**
+     * Whether the stepper itself needs the current depth computed for this statement
+     *
+     * StepInto breaks unconditionally, so the (O(depth)) stack walk is skipped for it.
+     */
+    public bool $needsDepth {
+        get => $this->mode === ResumeMode::StepOver || $this->mode === ResumeMode::StepOut;
+    }
 
     /**
      * Records how execution should resume, capturing the depth of the frame we resume from
@@ -45,21 +65,6 @@ final class StepController
     {
         $this->mode        = $mode;
         $this->resumeDepth = $currentDepth;
-    }
-
-    public function mode(): ResumeMode
-    {
-        return $this->mode;
-    }
-
-    /**
-     * Whether the stepper itself needs the current depth computed for this statement
-     *
-     * StepInto breaks unconditionally, so the (O(depth)) stack walk is skipped for it.
-     */
-    public function needsDepth(): bool
-    {
-        return $this->mode === ResumeMode::StepOver || $this->mode === ResumeMode::StepOut;
     }
 
     /**
@@ -73,18 +78,5 @@ final class StepController
             ResumeMode::StepOut  => $currentDepth < $this->resumeDepth,
             ResumeMode::Run      => false,
         };
-    }
-
-    /**
-     * Whether the statement hook must observe statements at all under the current mode
-     *
-     * In pure Run mode with no active stepping the hook still runs for breakpoints, but
-     * the stepper contributes nothing.
-     */
-    public function isStepping(): bool
-    {
-        return $this->mode === ResumeMode::StepInto
-            || $this->mode === ResumeMode::StepOver
-            || $this->mode === ResumeMode::StepOut;
     }
 }

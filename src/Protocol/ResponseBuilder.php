@@ -178,7 +178,7 @@ final class ResponseBuilder
         $attributes = [
             'id'       => (string) $breakpoint->id,
             'type'     => $breakpoint->type->value,
-            'state'    => $breakpoint->state(),
+            'state'    => $breakpoint->state,
             'resolved' => 'resolved',
         ];
         if ($breakpoint->file !== null) {

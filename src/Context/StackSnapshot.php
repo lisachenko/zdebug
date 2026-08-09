@@ -24,12 +24,10 @@ namespace ZDebug\Context;
  */
 final class StackSnapshot
 {
-    /**
-     * @param list<StackFrame> $frames   Displayable frames, innermost first (level 0)
-     * @param int              $rawDepth Total engine frame count from the top (1 = top-level)
-     */
     public function __construct(
+        /** @var list<StackFrame> Displayable frames, innermost first (level 0) */
         public readonly array $frames,
+        /** @var int Total engine frame count from the top (1 = top-level) */
         public readonly int $rawDepth,
     ) {}
 }

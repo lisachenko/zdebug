@@ -109,7 +109,7 @@ abstract class EngineHook
                 return Core::ZEND_USER_OPCODE_DISPATCH;
             }
             $session = $this->sessionResolver !== null ? ($this->sessionResolver)() : null;
-            if ($session === null || !$session->isLive()) {
+            if ($session === null || !$session->isLive) {
                 // Fast path: no active debugging session
                 return Core::ZEND_USER_OPCODE_DISPATCH;
             }

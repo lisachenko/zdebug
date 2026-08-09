@@ -67,16 +67,16 @@ final class StatementHook extends EngineHook
 
         $shouldBreak = false;
 
-        if ($this->stepper->isStepping()) {
-            $depth       = $this->stepper->needsDepth() ? $this->stack->collect($frame)->rawDepth : 0;
+        if ($this->stepper->isStepping) {
+            $depth       = $this->stepper->needsDepth ? $this->stack->collect($frame)->rawDepth : 0;
             $shouldBreak = $this->stepper->shouldBreak($depth);
         }
 
-        if ($this->breakpoints->hasCallBreakpoints() && $this->enteredFunction($frame, $decision)) {
+        if ($this->breakpoints->hasCallBreakpoints && $this->enteredFunction($frame, $decision)) {
             $shouldBreak = true;
         }
 
-        if (!$shouldBreak && $this->breakpoints->hasLineBreakpoints()) {
+        if (!$shouldBreak && $this->breakpoints->hasLineBreakpoints) {
             $line     = $frame->getOpline()->getLine();
             $matching = $this->breakpoints->atLine($decision->file, $line);
 
@@ -94,7 +94,7 @@ final class StatementHook extends EngineHook
                 // A "hit" is a location + condition match; the hit condition then decides
                 // whether this hit suspends the debuggee
                 $breakpoint->hitCount++;
-                if ($breakpoint->hitConditionSatisfied()) {
+                if ($breakpoint->hitConditionSatisfied) {
                     $shouldBreak = true;
                     $triggered[] = $breakpoint;
                 }
@@ -151,7 +151,7 @@ final class StatementHook extends EngineHook
         $triggered = [];
         foreach ($matching as $breakpoint) {
             $breakpoint->hitCount++;
-            if ($breakpoint->hitConditionSatisfied()) {
+            if ($breakpoint->hitConditionSatisfied) {
                 $triggered[] = $breakpoint;
             }
         }
@@ -200,6 +200,6 @@ final class StatementHook extends EngineHook
             return false;
         }
 
-        return $result->isTruthy();
+        return $result->isTruthy;
     }
 }

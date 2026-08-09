@@ -26,26 +26,26 @@ namespace ZDebug;
  */
 final class Config
 {
-    /**
-     * @param string       $clientHost       Host the IDE listens on (the debugger connects OUT to it)
-     * @param int          $clientPort       Port the IDE listens on (Xdebug 3 default: 9003)
-     * @param string       $ideKey           Session key echoed to the IDE in the <init> packet
-     * @param list<string> $pathFilter       Realpath prefixes whose code is observed; empty = observe everything
-     * @param int          $connectTimeoutMs Connect timeout in milliseconds; on failure the app runs undebugged
-     * @param int          $readTimeoutMs    How long a suspended debuggee waits for the next IDE command
-     *                                       before treating the IDE as gone and running on undebugged;
-     *                                       0 (or less) waits forever, as Xdebug does
-     * @param string       $mode             'debug' to arm the debugger, 'off' to become a no-op
-     * @param string|null  $logFile          Absolute path for the diagnostics log, or null to disable
-     */
     public function __construct(
+        /** @var string Host the IDE listens on (the debugger connects OUT to it) */
         public readonly string $clientHost = '127.0.0.1',
+        /** @var int Port the IDE listens on (Xdebug 3 default: 9003) */
         public readonly int $clientPort = 9003,
+        /** @var string Session key echoed to the IDE in the <init> packet */
         public readonly string $ideKey = 'zdebug',
+        /** @var list<string> Realpath prefixes whose code is observed; empty = observe everything */
         public readonly array $pathFilter = [],
+        /** @var int Connect timeout in milliseconds; on failure the app runs undebugged */
         public readonly int $connectTimeoutMs = 200,
+        /**
+         * @var int How long a suspended debuggee waits for the next IDE command before
+         *          treating the IDE as gone and running on undebugged; 0 (or less) waits
+         *          forever, as Xdebug does
+         */
         public readonly int $readTimeoutMs = 300_000,
+        /** @var string 'debug' to arm the debugger, 'off' to become a no-op */
         public readonly string $mode = 'debug',
+        /** @var string|null Absolute path for the diagnostics log, or null to disable */
         public readonly ?string $logFile = null,
     ) {}
 
@@ -60,11 +60,8 @@ final class Config
         return Config\ConfigResolver::fromEnvironment();
     }
 
-    /**
-     * Whether the debugger is armed (mode !== 'off')
-     */
-    public function isEnabled(): bool
-    {
-        return $this->mode !== 'off';
+    /** Whether the debugger is armed (mode !== 'off') */
+    public bool $isEnabled {
+        get => $this->mode !== 'off';
     }
 }

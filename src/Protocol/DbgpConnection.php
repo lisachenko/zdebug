@@ -88,9 +88,9 @@ final class DbgpConnection
         return new self($stream);
     }
 
-    public function isConnected(): bool
-    {
-        return $this->stream !== null && !feof($this->stream);
+    /** Whether the socket to the IDE is still open on both ends */
+    public bool $isConnected {
+        get => $this->stream !== null && !feof($this->stream);
     }
 
     /**

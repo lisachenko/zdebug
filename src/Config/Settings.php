@@ -22,10 +22,10 @@ namespace ZDebug\Config;
  */
 final class Settings
 {
-    /**
-     * @param array<string, mixed> $values Keyed by Setting backing values
-     */
-    public function __construct(private array $values = []) {}
+    public function __construct(
+        /** @var array<string, mixed> Keyed by Setting backing values */
+        private array $values = [],
+    ) {}
 
     public function has(Setting $key): bool
     {

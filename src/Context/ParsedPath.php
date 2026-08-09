@@ -22,20 +22,15 @@ namespace ZDebug\Context;
  */
 final class ParsedPath
 {
-    /**
-     * @param string             $base  The base variable, as written ('$rows' or 'rows')
-     * @param list<PropertyStep> $steps The subscripts and properties applied to it, in order
-     */
     public function __construct(
+        /** @var string The base variable, as written ('$rows' or 'rows') */
         public readonly string $base,
+        /** @var list<PropertyStep> The subscripts and properties applied to it, in order */
         public readonly array $steps,
     ) {}
 
-    /**
-     * The base variable name without its sigil, i.e. as the engine names a CV slot
-     */
-    public function baseName(): string
-    {
-        return ltrim($this->base, '$');
+    /** The base variable name without its sigil, i.e. as the engine names a CV slot */
+    public string $baseName {
+        get => ltrim($this->base, '$');
     }
 }

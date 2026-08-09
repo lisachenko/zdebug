@@ -41,16 +41,31 @@ use ZEngine\System\ExecutionData;
  */
 final class DebugSession implements SuspendedState
 {
-    private SessionStatus $status = SessionStatus::Starting;
+    /** Owned by the session's own state machine; the world outside only reads it */
+    public private(set) SessionStatus $status = SessionStatus::Starting;
 
     /** @var array{string, string}|null [command, transactionId] awaiting the next break */
     private ?array $pendingContinuation = null;
 
     /** @var list<StackFrame> Valid only while suspended */
-    private array $suspendedStack = [];
+    public private(set) array $suspendedStack = [];
 
     /** The returning value of the suspended frame, for a return stop only */
-    private ?ReturnValue $suspendedReturn = null;
+    public private(set) ?ReturnValue $returnValue = null;
+
+    /**
+     * Whether the session can still exchange messages with the IDE
+     */
+    public bool $isActive {
+        get => $this->status !== SessionStatus::Stopped && $this->connection->isConnected;
+    }
+
+    /**
+     * Whether the debuggee should still be observed (breakpoints/stepping evaluated)
+     */
+    public bool $isLive {
+        get => $this->status === SessionStatus::Running && $this->connection->isConnected;
+    }
 
     private readonly Features $features;
 
@@ -101,17 +116,17 @@ final class DebugSession implements SuspendedState
      */
     public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null, ?ReturnValue $return = null): void
     {
-        $snapshot              = $this->stackCollector->collect($top);
-        $this->status          = SessionStatus::Break;
-        $this->suspendedStack  = $snapshot->frames;
-        $this->suspendedReturn = $return;
+        $snapshot             = $this->stackCollector->collect($top);
+        $this->status         = SessionStatus::Break;
+        $this->suspendedStack = $snapshot->frames;
+        $this->returnValue    = $return;
 
         $this->answerPendingContinuation($exception);
         $this->commandLoop($snapshot->rawDepth);
 
         // Borrowed frames are only valid while suspended; drop them on resume
-        $this->suspendedStack  = [];
-        $this->suspendedReturn = null;
+        $this->suspendedStack = [];
+        $this->returnValue    = null;
     }
 
     /**
@@ -119,7 +134,7 @@ final class DebugSession implements SuspendedState
      */
     public function onScriptEnd(): void
     {
-        if (!$this->isActive()) {
+        if (!$this->isActive) {
             return;
         }
         try {
@@ -153,43 +168,9 @@ final class DebugSession implements SuspendedState
         $this->connection->close();
     }
 
-    public function status(): SessionStatus
-    {
-        return $this->status;
-    }
-
-    /**
-     * Whether the session can still exchange messages with the IDE
-     */
-    public function isActive(): bool
-    {
-        return $this->status !== SessionStatus::Stopped && $this->connection->isConnected();
-    }
-
-    /**
-     * Whether the debuggee should still be observed (breakpoints/stepping evaluated)
-     */
-    public function isLive(): bool
-    {
-        return $this->status === SessionStatus::Running && $this->connection->isConnected();
-    }
-
-    /**
-     * @return list<StackFrame>
-     */
-    public function suspendedStack(): array
-    {
-        return $this->suspendedStack;
-    }
-
     public function frameAtLevel(int $level): ?StackFrame
     {
         return $this->suspendedStack[$level] ?? null;
-    }
-
-    public function returnValue(): ?ReturnValue
-    {
-        return $this->suspendedReturn;
     }
 
     /**
@@ -254,11 +235,11 @@ final class DebugSession implements SuspendedState
 
         // The returning value rides along with the break that reports it, so an IDE can
         // show it without having to know it should go looking in the context
-        if ($this->suspendedReturn !== null) {
-            [$maxDepth, $maxChildren, $maxData] = $this->features->propertyLimits();
+        if ($this->returnValue !== null) {
+            [$maxDepth, $maxChildren, $maxData] = $this->features->propertyLimits;
             $body .= ResponseBuilder::returnValue(
                 (new PropertySerializer($maxDepth, $maxChildren, $maxData))
-                    ->serialize(ReturnValue::VARIABLE, ReturnValue::VARIABLE, $this->suspendedReturn->value),
+                    ->serialize(ReturnValue::VARIABLE, ReturnValue::VARIABLE, $this->returnValue->value),
             );
         }
 

@@ -59,22 +59,19 @@ final class Breakpoint
         public string $hitCondition = self::HIT_GREATER_OR_EQUAL,
     ) {}
 
-    public function isLineType(): bool
-    {
-        return $this->type === BreakpointType::Line || $this->type === BreakpointType::Conditional;
+    /** Whether this breakpoint is located by (file, line) - a plain or conditional line breakpoint */
+    public bool $isLineType {
+        get => $this->type === BreakpointType::Line || $this->type === BreakpointType::Conditional;
     }
 
-    /**
-     * Whether this breakpoint fires on entering or leaving a named function
-     */
-    public function isFunctionType(): bool
-    {
-        return $this->type === BreakpointType::Call || $this->type === BreakpointType::Return;
+    /** Whether this breakpoint fires on entering or leaving a named function */
+    public bool $isFunctionType {
+        get => $this->type === BreakpointType::Call || $this->type === BreakpointType::Return;
     }
 
-    public function state(): string
-    {
-        return $this->enabled ? 'enabled' : 'disabled';
+    /** The DBGp state attribute: 'enabled' or 'disabled' */
+    public string $state {
+        get => $this->enabled ? 'enabled' : 'disabled';
     }
 
     /**
@@ -83,16 +80,17 @@ final class Breakpoint
      * A hit value of zero (the default, and what an IDE sends when the user did not ask
      * for a hit condition) means "every hit counts".
      */
-    public function hitConditionSatisfied(): bool
-    {
-        if ($this->hitValue <= 0) {
-            return true;
-        }
+    public bool $hitConditionSatisfied {
+        get {
+            if ($this->hitValue <= 0) {
+                return true;
+            }
 
-        return match ($this->hitCondition) {
-            self::HIT_EQUAL    => $this->hitCount                   === $this->hitValue,
-            self::HIT_MULTIPLE => $this->hitCount % $this->hitValue === 0,
-            default            => $this->hitCount >= $this->hitValue,
-        };
+            return match ($this->hitCondition) {
+                self::HIT_EQUAL    => $this->hitCount                   === $this->hitValue,
+                self::HIT_MULTIPLE => $this->hitCount % $this->hitValue === 0,
+                default            => $this->hitCount >= $this->hitValue,
+            };
+        }
     }
 }

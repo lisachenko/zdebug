@@ -44,7 +44,7 @@ final class PropertyPath
             return null;
         }
 
-        $key = array_key_exists($parsed->base, $variables) ? $parsed->base : '$' . $parsed->baseName();
+        $key = array_key_exists($parsed->base, $variables) ? $parsed->base : '$' . $parsed->baseName;
         if (!array_key_exists($key, $variables)) {
             return null;
         }

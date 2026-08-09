@@ -27,19 +27,14 @@ use ZDebug\Context\StackFrame;
  */
 interface SuspendedState
 {
-    public function status(): SessionStatus;
+    public SessionStatus $status { get; }
 
     /**
      * The suspended call stack, innermost frame first
      *
-     * @return list<StackFrame>
+     * @var list<StackFrame>
      */
-    public function suspendedStack(): array;
-
-    /**
-     * The frame at a DBGp stack depth (0 = innermost), or null when out of range
-     */
-    public function frameAtLevel(int $level): ?StackFrame;
+    public array $suspendedStack { get; }
 
     /**
      * The value the suspended frame is returning, when the break was a return stop
@@ -47,5 +42,10 @@ interface SuspendedState
      * Null for every other break. Only the innermost frame can have one - it is the frame
      * that is leaving - which is why context_get exposes it at depth 0 and nowhere else.
      */
-    public function returnValue(): ?ReturnValue;
+    public ?ReturnValue $returnValue { get; }
+
+    /**
+     * The frame at a DBGp stack depth (0 = innermost), or null when out of range
+     */
+    public function frameAtLevel(int $level): ?StackFrame;
 }

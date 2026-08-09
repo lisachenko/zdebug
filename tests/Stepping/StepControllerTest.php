@@ -24,15 +24,15 @@ final class StepControllerTest extends TestCase
         $controller = new StepController();
         $controller->resume(ResumeMode::Run, 3);
         $this->assertFalse($controller->shouldBreak(3));
-        $this->assertFalse($controller->needsDepth());
-        $this->assertFalse($controller->isStepping());
+        $this->assertFalse($controller->needsDepth);
+        $this->assertFalse($controller->isStepping);
     }
 
     public function testStepIntoAlwaysBreaksWithoutNeedingDepth(): void
     {
         $controller = new StepController();
         $controller->resume(ResumeMode::StepInto, 5);
-        $this->assertFalse($controller->needsDepth());
+        $this->assertFalse($controller->needsDepth);
         $this->assertTrue($controller->shouldBreak(99));
         $this->assertTrue($controller->shouldBreak(1));
     }
@@ -64,9 +64,9 @@ final class StepControllerTest extends TestCase
     {
         $controller = new StepController();
         $controller->resume(ResumeMode::StepOver, 1);
-        $this->assertTrue($controller->needsDepth());
+        $this->assertTrue($controller->needsDepth);
         $controller->resume(ResumeMode::StepOut, 1);
-        $this->assertTrue($controller->needsDepth());
+        $this->assertTrue($controller->needsDepth);
     }
 
     /**

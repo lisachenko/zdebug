@@ -43,8 +43,7 @@ final class EvaluationResult
      * A failed evaluation is never truthy: a broken breakpoint condition must not suspend
      * the debuggee.
      */
-    public function isTruthy(): bool
-    {
-        return $this->ok && (bool) $this->value;
+    public bool $isTruthy {
+        get => $this->ok && (bool) $this->value;
     }
 }

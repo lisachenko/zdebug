@@ -70,7 +70,7 @@ final class ReturnHook extends EngineHook
      */
     protected function isRelevant(): bool
     {
-        return $this->breakpoints->hasReturnBreakpoints() || $this->stopsForReturnValue();
+        return $this->breakpoints->hasReturnBreakpoints || $this->stopsForReturnValue();
     }
 
     protected function checkForBreak(ExecutionData $frame, DebugSession $session): void
@@ -81,7 +81,7 @@ final class ReturnHook extends EngineHook
         }
 
         $suspend = $this->stopsForReturnValue();
-        if ($this->breakpoints->hasReturnBreakpoints()) {
+        if ($this->breakpoints->hasReturnBreakpoints) {
             $suspend = $this->breakpointTriggered($frame, $decision) || $suspend;
         }
         if (!$suspend) {
@@ -106,7 +106,7 @@ final class ReturnHook extends EngineHook
     private function stopsForReturnValue(): bool
     {
         return $this->features->isEnabled(self::FEATURE)
-            && ($this->stepper->mode() === ResumeMode::StepInto || $this->stepper->mode() === ResumeMode::StepOut);
+            && ($this->stepper->mode === ResumeMode::StepInto || $this->stepper->mode === ResumeMode::StepOut);
     }
 
     /**
@@ -117,7 +117,7 @@ final class ReturnHook extends EngineHook
         $triggered = [];
         foreach ($this->breakpoints->forReturn($decision->functionName, self::boundClass($frame)) as $breakpoint) {
             $breakpoint->hitCount++;
-            if ($breakpoint->hitConditionSatisfied()) {
+            if ($breakpoint->hitConditionSatisfied) {
                 $triggered[] = $breakpoint;
             }
         }

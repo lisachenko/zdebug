@@ -54,7 +54,7 @@ final class ConfigTest extends TestCase
         $this->assertSame(9003, $config->clientPort);
         $this->assertSame('zdebug', $config->ideKey);
         $this->assertSame([], $config->pathFilter);
-        $this->assertTrue($config->isEnabled());
+        $this->assertTrue($config->isEnabled);
     }
 
     public function testReadsEnvironmentOverrides(): void
@@ -82,7 +82,7 @@ final class ConfigTest extends TestCase
     public function testModeOffDisablesTheDebugger(): void
     {
         putenv('ZDEBUG_MODE=off');
-        $this->assertFalse(Config::fromEnvironment()->isEnabled());
+        $this->assertFalse(Config::fromEnvironment()->isEnabled);
     }
 
     public function testPathFilterSplitsOnPathSeparatorAndRealpaths(): void

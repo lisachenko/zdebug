@@ -30,9 +30,34 @@ final class FakeSuspendedState implements SuspendedState
 
     private ?\Throwable $failure = null;
 
-    private ?ReturnValue $returnValue = null;
+    public SessionStatus $status {
+        get {
+            $this->guard();
 
-    public function __construct(private readonly SessionStatus $status = SessionStatus::Break) {}
+            return $this->statusValue;
+        }
+    }
+
+    /** @var list<StackFrame> */
+    public array $suspendedStack {
+        get {
+            $this->guard();
+
+            return $this->stack;
+        }
+    }
+
+    public ?ReturnValue $returnValue {
+        get {
+            $this->guard();
+
+            return $this->returnValueHeld;
+        }
+    }
+
+    private ?ReturnValue $returnValueHeld = null;
+
+    public function __construct(private readonly SessionStatus $statusValue = SessionStatus::Break) {}
 
     /**
      * @param list<StackFrame> $frames Innermost frame first, as StackCollector produces them
@@ -47,23 +72,6 @@ final class FakeSuspendedState implements SuspendedState
         $this->failure = $error;
     }
 
-    public function status(): SessionStatus
-    {
-        $this->guard();
-
-        return $this->status;
-    }
-
-    /**
-     * @return list<StackFrame>
-     */
-    public function suspendedStack(): array
-    {
-        $this->guard();
-
-        return $this->stack;
-    }
-
     public function frameAtLevel(int $level): ?StackFrame
     {
         $this->guard();
@@ -76,14 +84,7 @@ final class FakeSuspendedState implements SuspendedState
      */
     public function returnsWith(mixed $value): void
     {
-        $this->returnValue = new ReturnValue($value);
-    }
-
-    public function returnValue(): ?ReturnValue
-    {
-        $this->guard();
-
-        return $this->returnValue;
+        $this->returnValueHeld = new ReturnValue($value);
     }
 
     private function guard(): void

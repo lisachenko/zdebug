@@ -25,7 +25,7 @@ final class BreakpointTest extends TestCase
 
         foreach (range(1, 5) as $hit) {
             $breakpoint->hitCount = $hit;
-            $this->assertTrue($breakpoint->hitConditionSatisfied(), "hit {$hit}");
+            $this->assertTrue($breakpoint->hitConditionSatisfied, "hit {$hit}");
         }
     }
 
@@ -34,7 +34,7 @@ final class BreakpointTest extends TestCase
         $breakpoint           = self::lineBreakpoint(-3, Breakpoint::HIT_EQUAL);
         $breakpoint->hitCount = 1;
 
-        $this->assertTrue($breakpoint->hitConditionSatisfied());
+        $this->assertTrue($breakpoint->hitConditionSatisfied);
     }
 
     /**
@@ -48,7 +48,7 @@ final class BreakpointTest extends TestCase
         $actual = [];
         foreach (range(1, 7) as $hit) {
             $breakpoint->hitCount = $hit;
-            if ($breakpoint->hitConditionSatisfied()) {
+            if ($breakpoint->hitConditionSatisfied) {
                 $actual[] = $hit;
             }
         }
@@ -72,10 +72,10 @@ final class BreakpointTest extends TestCase
     {
         $breakpoint           = self::lineBreakpoint(2, 'nonsense');
         $breakpoint->hitCount = 1;
-        $this->assertFalse($breakpoint->hitConditionSatisfied());
+        $this->assertFalse($breakpoint->hitConditionSatisfied);
 
         $breakpoint->hitCount = 3;
-        $this->assertTrue($breakpoint->hitConditionSatisfied());
+        $this->assertTrue($breakpoint->hitConditionSatisfied);
     }
 
     public function testConditionalBreakpointsCountAsLineBreakpoints(): void
@@ -88,8 +88,8 @@ final class BreakpointTest extends TestCase
             condition: '$i === 3',
         );
 
-        $this->assertTrue($conditional->isLineType());
-        $this->assertSame('enabled', $conditional->state());
+        $this->assertTrue($conditional->isLineType);
+        $this->assertSame('enabled', $conditional->state);
         $this->assertSame(Breakpoint::HIT_GREATER_OR_EQUAL, $conditional->hitCondition);
         $this->assertSame(0, $conditional->hitValue);
     }
