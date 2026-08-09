@@ -14,6 +14,10 @@ namespace ZDebug\Instrumentation;
 
 /**
  * The memoized observation decision for one op_array
+ *
+ * $address is the op_array's stable entry address - the key this decision is cached
+ * under, carried along so a caller can tell two frames' code apart without going back
+ * to the engine for it.
  */
 final class GateDecision
 {
@@ -21,6 +25,7 @@ final class GateDecision
         public readonly bool $observed,
         public readonly string $file,
         public readonly string $functionName,
+        public readonly int $address = 0,
     ) {}
 
     public static function notObserved(): self

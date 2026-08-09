@@ -22,4 +22,6 @@ enum BreakpointType: string
     case Line        = 'line';
     case Conditional = 'conditional';
     case Exception   = 'exception';
+    case Call        = 'call';
+    case Return      = 'return';
 }

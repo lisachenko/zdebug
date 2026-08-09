@@ -26,7 +26,7 @@ final class FeaturesTest extends TestCase
         $this->assertSame('1.0', $features->get('protocol_version'));
         $this->assertSame('base64', $features->get('data_encoding'));
         $this->assertSame('0', $features->get('supports_async'));
-        $this->assertSame('line conditional exception', $features->get('breakpoint_types'));
+        $this->assertSame('line conditional exception call return', $features->get('breakpoint_types'));
     }
 
     public function testUnknownFeatureIsUnsupported(): void

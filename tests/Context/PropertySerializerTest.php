@@ -200,6 +200,43 @@ final class PropertySerializerTest extends TestCase
         ], $this->children($property));
     }
 
+    /**
+     * facet is how an IDE draws the padlock next to a non-public property, and the
+     * mangled property-table key is the only place the visibility is recorded
+     */
+    public function testObjectPropertiesReportTheirVisibilityAsAFacet(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('$o', '$o', new VisibilityFixture()));
+
+        $facets = [];
+        foreach ($property->getElementsByTagName('property') as $child) {
+            $facets[$child->getAttribute('name')] = $child->getAttribute('facet');
+        }
+        $this->assertSame([
+            'open'     => 'public',
+            'shared'   => 'protected',
+            'own'      => 'private',
+            'shadowed' => 'private',
+        ], $facets);
+
+        // The object itself is a frame local, not a declared member: it has no visibility
+        $this->assertFalse($property->hasAttribute('facet'));
+    }
+
+    /**
+     * An array element is not declared under a visibility, so it carries no facet at all
+     */
+    public function testArrayElementsCarryNoFacet(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1);
+        $property   = $this->parse($serializer->serialize('a', '$a', ['x' => 1]));
+
+        $child = $property->getElementsByTagName('property')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $child);
+        $this->assertFalse($child->hasAttribute('facet'));
+    }
+
     public function testChildFullNamesUseThePlainPropertyName(): void
     {
         $serializer = new PropertySerializer(maxDepth: 1);

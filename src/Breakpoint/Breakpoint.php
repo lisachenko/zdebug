@@ -15,13 +15,20 @@ namespace ZDebug\Breakpoint;
 /**
  * A single breakpoint as registered by the IDE via breakpoint_set
  *
- * The PoC supports line breakpoints (with an optional condition, evaluated in the
- * frame) and exception breakpoints (matched by class name). $file is the resolved
- * filesystem path; the DBGp file:// URI is reconstructed on the way out.
+ * Line breakpoints (with an optional condition, evaluated in the frame), exception
+ * breakpoints (matched by class name) and call/return breakpoints (matched by function
+ * name). $file is the resolved filesystem path; the DBGp file:// URI is reconstructed on
+ * the way out.
  *
  * $hitCount counts the times the breakpoint actually matched (location plus condition);
  * $hitValue / $hitCondition then decide whether such a match suspends the debuggee, per
  * the DBGp `-h` / `-o` arguments.
+ *
+ * The fields DBGp's breakpoint_update may change ($enabled, $line, $hitValue,
+ * $hitCondition) are mutable, everything that identifies the breakpoint is readonly:
+ * an update must never turn a breakpoint into a different one behind the IDE's id. $line
+ * is indexed by BreakpointRegistry, so it is moved through relocate() rather than
+ * assigned directly.
  */
 final class Breakpoint
 {
@@ -42,18 +49,27 @@ final class Breakpoint
         public readonly BreakpointType $type,
         public bool $enabled = true,
         public readonly ?string $file = null,
-        public readonly ?int $line = null,
+        public ?int $line = null,
         public readonly ?string $condition = null,
         public readonly ?string $exceptionName = null,
+        public readonly ?string $functionName = null,
         public readonly bool $temporary = false,
         public int $hitCount = 0,
-        public readonly int $hitValue = 0,
-        public readonly string $hitCondition = self::HIT_GREATER_OR_EQUAL,
+        public int $hitValue = 0,
+        public string $hitCondition = self::HIT_GREATER_OR_EQUAL,
     ) {}
 
     public function isLineType(): bool
     {
         return $this->type === BreakpointType::Line || $this->type === BreakpointType::Conditional;
+    }
+
+    /**
+     * Whether this breakpoint fires on entering or leaving a named function
+     */
+    public function isFunctionType(): bool
+    {
+        return $this->type === BreakpointType::Call || $this->type === BreakpointType::Return;
     }
 
     public function state(): string

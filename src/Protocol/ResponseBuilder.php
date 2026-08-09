@@ -33,6 +33,39 @@ final class ResponseBuilder
     public const string NS_XDEBUG = 'https://xdebug.org/dbgp/xdebug';
 
     /**
+     * The XML Schema namespaces a typemap_get response declares
+     *
+     * Its <map> elements carry `xsi:type` attributes, so without these two declarations
+     * on the <response> the packet is not a well-formed namespaced document at all.
+     *
+     * @var array<string, string>
+     */
+    public const array SCHEMA_NAMESPACES = [
+        'xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+        'xmlns:xsd' => 'http://www.w3.org/2001/XMLSchema',
+    ];
+
+    /**
+     * PHP type => [DBGp common type, XML Schema type or null], as typemap_get reports it
+     *
+     * The middle column is what <property type="..."> carries; array, object, resource and
+     * null have no XML Schema counterpart and are reported without an xsi:type, as the
+     * protocol prescribes for language types that map onto no scalar schema type.
+     *
+     * @var array<string, array{string, string|null}>
+     */
+    private const array TYPE_MAP = [
+        'bool'     => ['bool', 'xsd:boolean'],
+        'int'      => ['int', 'xsd:long'],
+        'float'    => ['float', 'xsd:double'],
+        'string'   => ['string', 'xsd:string'],
+        'array'    => ['array', null],
+        'object'   => ['object', null],
+        'resource' => ['resource', null],
+        'null'     => ['null', null],
+    ];
+
+    /**
      * Builds the <init> packet sent immediately after connecting to the IDE
      */
     public function init(string $fileUri, string $ideKey, int $appId, string $languageVersion): string
@@ -145,6 +178,9 @@ final class ResponseBuilder
         if ($breakpoint->exceptionName !== null) {
             $attributes['exception'] = $breakpoint->exceptionName;
         }
+        if ($breakpoint->functionName !== null) {
+            $attributes['function'] = $breakpoint->functionName;
+        }
         $attributes['hit_count']     = (string) $breakpoint->hitCount;
         $attributes['hit_value']     = (string) $breakpoint->hitValue;
         $attributes['hit_condition'] = $breakpoint->hitCondition;
@@ -172,6 +208,23 @@ final class ResponseBuilder
             'filename' => $fileUri,
             'lineno'   => (string) $line,
         ]) . '/>';
+    }
+
+    /**
+     * Renders the <map> elements of a typemap_get response
+     */
+    public static function typeMap(): string
+    {
+        $body = '';
+        foreach (self::TYPE_MAP as $languageName => [$commonType, $schemaType]) {
+            $attributes = ['name' => $languageName, 'type' => $commonType];
+            if ($schemaType !== null) {
+                $attributes['xsi:type'] = $schemaType;
+            }
+            $body .= '<map ' . self::attributes($attributes) . '/>';
+        }
+
+        return $body;
     }
 
     /**

@@ -224,6 +224,121 @@ final class CommandDispatcherTest extends TestCase
         $this->assertSame('{main}', $frames[0]->getAttribute('where'));
     }
 
+    public function testStackDepthCountsTheSuspendedFrames(): void
+    {
+        $this->assertSame('0', $this->respondTo('stack_depth')->getAttribute('depth'), 'nothing suspended');
+
+        $this->state->suspendOn([
+            $this->frame(0, '/app/a.php', 12, 'compute'),
+            $this->frame(1, '/app/entry.php', 4, '{main}'),
+        ]);
+        $this->assertSame('2', $this->respondTo('stack_depth')->getAttribute('depth'));
+    }
+
+    /**
+     * The typemap must describe the very types PropertySerializer emits, or an IDE that
+     * trusts it renders values it was told the wrong shape of
+     */
+    public function testTypemapGetDescribesTheTypesPropertiesCarry(): void
+    {
+        $response = $this->respondTo('typemap_get');
+
+        $types = [];
+        foreach ($this->childrenOf($response, 'map') as $map) {
+            $types[$map->getAttribute('name')] = $map->getAttribute('type');
+        }
+        $this->assertSame([
+            'bool'     => 'bool',
+            'int'      => 'int',
+            'float'    => 'float',
+            'string'   => 'string',
+            'array'    => 'array',
+            'object'   => 'object',
+            'resource' => 'resource',
+            'null'     => 'null',
+        ], $types);
+
+        // The xsi:type attributes are only legal because the response declares the schema
+        // namespaces; without them the packet is not a well-formed document at all
+        $this->assertSame('http://www.w3.org/2001/XMLSchema', $response->getAttribute('xmlns:xsd'));
+        $this->assertSame('xsd:long', $this->childrenOf($response, 'map')[1]->getAttribute('xsi:type'));
+    }
+
+    public function testSourceReturnsTheFileBase64Encoded(): void
+    {
+        $response = $this->respondTo('source', ['f' => 'file://' . __FILE__, 'b' => '1', 'e' => '1']);
+
+        $this->assertSame('1', $response->getAttribute('success'));
+        $this->assertSame('base64', $response->getAttribute('encoding'));
+        $this->assertSame("<?php\n", base64_decode($response->textContent));
+    }
+
+    public function testSourceOfAnUnreadableFileIsError100(): void
+    {
+        $this->assertSame(100, $this->errorCodeOf($this->respondTo('source', ['f' => 'file:///no/such/file.php'])));
+        // No -f and no suspended frame: there is no file the command could mean
+        $this->assertSame(100, $this->errorCodeOf($this->respondTo('source')));
+    }
+
+    public function testBreakpointUpdateChangesStateAndHitConditionInPlace(): void
+    {
+        $id = (int) $this->respondTo('breakpoint_set', ['t' => 'line', 'f' => 'file:///app/a.php', 'n' => '5'])
+            ->getAttribute('id');
+
+        $updated = $this->respondTo('breakpoint_update', ['d' => (string) $id, 's' => 'disabled', 'h' => '3', 'o' => '%']);
+
+        $breakpoint = $this->breakpoints->get($id);
+        $this->assertNotNull($breakpoint, 'the id survives an update');
+        $this->assertFalse($breakpoint->enabled);
+        $this->assertSame(3, $breakpoint->hitValue);
+        $this->assertSame('%', $breakpoint->hitCondition);
+        $this->assertSame('disabled', $this->childrenOf($updated, 'breakpoint')[0]->getAttribute('state'));
+    }
+
+    /**
+     * The line is an index key of the registry, not just a field: an update that only
+     * assigned it would leave the breakpoint firing on its old line forever
+     */
+    public function testBreakpointUpdateMovesTheBreakpointInTheLineIndex(): void
+    {
+        $id = (int) $this->respondTo('breakpoint_set', ['t' => 'line', 'f' => 'file:///app/a.php', 'n' => '5'])
+            ->getAttribute('id');
+
+        $this->respondTo('breakpoint_update', ['d' => (string) $id, 'n' => '9']);
+
+        $this->assertSame([], $this->breakpoints->atLine('/app/a.php', 5));
+        $this->assertCount(1, $this->breakpoints->atLine('/app/a.php', 9));
+    }
+
+    public function testBreakpointUpdateRejectsUnknownIdsAndValues(): void
+    {
+        $id = (int) $this->respondTo('breakpoint_set', ['t' => 'line', 'f' => 'file:///app/a.php', 'n' => '5'])
+            ->getAttribute('id');
+
+        $this->assertSame(205, $this->errorCodeOf($this->respondTo('breakpoint_update', ['d' => '404'])));
+        $this->assertSame(204, $this->errorCodeOf($this->respondTo('breakpoint_update', ['d' => (string) $id, 's' => 'sideways'])));
+        $this->assertSame(202, $this->errorCodeOf($this->respondTo('breakpoint_update', ['d' => (string) $id, 'o' => '<='])));
+
+        // A rejected update changes nothing
+        $breakpoint = $this->breakpoints->get($id);
+        $this->assertNotNull($breakpoint);
+        $this->assertTrue($breakpoint->enabled);
+        $this->assertSame('>=', $breakpoint->hitCondition);
+    }
+
+    public function testCallBreakpointRequiresAFunctionName(): void
+    {
+        $response = $this->respondTo('breakpoint_set', ['t' => 'call', 'm' => 'handle']);
+        $this->assertSame('enabled', $response->getAttribute('state'));
+
+        $breakpoint = $this->breakpoints->get((int) $response->getAttribute('id'));
+        $this->assertNotNull($breakpoint);
+        $this->assertSame(BreakpointType::Call, $breakpoint->type);
+        $this->assertSame('handle', $breakpoint->functionName);
+
+        $this->assertSame(202, $this->errorCodeOf($this->respondTo('breakpoint_set', ['t' => 'return'])));
+    }
+
     public function testContextNamesAdvertisesLocalsAndSuperglobals(): void
     {
         $contexts = $this->childrenOf($this->respondTo('context_names'), 'context');
@@ -306,8 +421,9 @@ final class CommandDispatcherTest extends TestCase
      */
     public static function unimplementedCommandNames(): iterable
     {
-        yield 'source' => ['source'];
         yield 'break' => ['break'];
+        yield 'interact' => ['interact'];
+        yield 'spawnpoint_set' => ['spawnpoint_set'];
     }
 
     public function testFeatureGetOfAnUnknownNameIsUnsupported(): void
