@@ -31,12 +31,19 @@ use ZDebug\Session\DispatchResult;
  * ResumeMode they record. Anything less identical gets its own class.
  *
  * Implementations back $commands with a plain `private(set)` property carrying a
- * constant default, NOT a computed get hook. Deliberately so: a hooked property read
- * polymorphically across every handler class is a megamorphic hook site, which PHP
- * 8.5's tracing JIT miscompiles (the full test suite segfaults inside JIT-emitted
- * code with opcache.jit=tracing; plain properties are immune). Only the DEBUGGEE
- * needs JIT off - phpunit and any IDE-side tooling are ordinary PHP processes where
- * JIT is legitimately on, so the handlers must survive it.
+ * constant default, NOT a computed `get` hook. Deliberately so, and the reason is an
+ * engine bug rather than taste: with hooks here, PHP 8.5.9 segfaults the test process
+ * ~9 runs in 10 by jumping into the opcache/JIT mapping at bytes that are not code.
+ * Measured on this tree - hooks 8/8 crashes, plain properties 0/8; every opcache.jit
+ * mode and level reproduces it (function JIT at 1201 included, so it is not a tracing
+ * or trace-buffer problem), jit=off never does, and the trigger appears between 19 and
+ * 20 hooked classes rather than at any single one. Only the DEBUGGEE needs JIT off -
+ * phpunit and IDE-side tooling are ordinary PHP processes where JIT is legitimately
+ * on, so these classes have to survive it.
+ *
+ * Not yet minimized to a standalone script: synthetic replicas of this shape do not
+ * crash, so something about the surrounding process is required too. Restore the hooks
+ * only against a PHP that has been shown to survive them.
  */
 interface CommandHandler
 {
