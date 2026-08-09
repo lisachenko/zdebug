@@ -138,7 +138,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Stack traces | ✅ | Full `getPrevious()` walk, with call sites |
 | Locals, args, `$this` | ✅ | Named, from CV slots — no symbol table needed |
 | Superglobals | ✅ | From the engine global symbol table |
-| Variable inspection (`property_get`) | 🚧 | Scalars & one array level today; paging in M2 |
+| Variable inspection (`property_get`) | ✅ | Expand any node by its `fullname` (`$e->previous->message`, `$rows[3]['id']`), `-p` paging, `-m` / `property_value` for untruncated data |
 | `eval` in frame | ✅ | Read-only: evaluated against the locals of the frame selected by `-d` |
 | Exception breakpoints | 🚧 | First-chance via the `THROW` opcode — M3 |
 | Attach to already-running code | ❌ | Only code compiled after attach is steppable |

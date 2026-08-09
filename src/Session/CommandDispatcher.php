@@ -16,6 +16,7 @@ use ZDebug\Breakpoint\Breakpoint;
 use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Breakpoint\BreakpointType;
 use ZDebug\Context\ContextProvider;
+use ZDebug\Context\PropertyPath;
 use ZDebug\Context\PropertySerializer;
 use ZDebug\Protocol\Command;
 use ZDebug\Protocol\DbgpCommand;
@@ -35,6 +36,9 @@ use ZDebug\Stepping\ResumeMode;
  */
 final class CommandDispatcher
 {
+    /** property_value returns the whole value; PHP_INT_MAX is "never clamp" for a byte count */
+    private const int UNLIMITED_DATA = PHP_INT_MAX;
+
     public function __construct(
         private readonly SuspendedState $state,
         private readonly Features $features,
@@ -68,6 +72,8 @@ final class CommandDispatcher
             DbgpCommand::StackGet         => $this->stackGet($command),
             DbgpCommand::ContextNames     => $this->contextNames($command),
             DbgpCommand::ContextGet       => $this->contextGet($command),
+            DbgpCommand::PropertyGet      => $this->propertyGet($command, $this->requestedMaxData($command)),
+            DbgpCommand::PropertyValue    => $this->propertyGet($command, self::UNLIMITED_DATA),
             DbgpCommand::Eval             => $this->evaluate($command),
             DbgpCommand::Run              => DispatchResult::continuation(ResumeMode::Run),
             DbgpCommand::StepInto         => DispatchResult::continuation(ResumeMode::StepInto),
@@ -264,6 +270,69 @@ final class CommandDispatcher
     }
 
     /**
+     * property_get / property_value: expands one variable of a suspended frame
+     *
+     * This is the other half of context_get. A context is rendered one level deep - deeper
+     * would mean serializing an arbitrary object graph into every break - so an IDE that
+     * wants to look inside a variable asks for it by the `fullname` the context response
+     * put on it: "$error->previous", "$rows[3]['id']". PropertyPath walks that path back
+     * through the same materialized values the context was built from, and the node found
+     * is rendered with its own children, which is how the variables panel opens an
+     * exception (message, code, file, line, trace, previous) rather than showing a bare
+     * "object" leaf.
+     *
+     * -p pages a large container, -m overrides max_data for this one response; both are
+     * only defaults the IDE may sharpen. property_value is the same lookup with the data
+     * clamp lifted, which is what an IDE fetches when the user opens a truncated string
+     * in full.
+     */
+    private function propertyGet(Command $command, ?int $maxData): DispatchResult
+    {
+        $fullName = trim((string) $command->argument('n', ''));
+        if ($fullName === '') {
+            return $this->error($command, ErrorCode::InvalidOptions, "{$command->name} requires a property name in -n");
+        }
+
+        $contextId = $command->intArgument('c', ContextProvider::CONTEXT_LOCALS) ?? ContextProvider::CONTEXT_LOCALS;
+        $depth     = $command->intArgument('d', 0)                               ?? 0;
+        $frame     = $this->state->frameAtLevel($depth);
+        if ($frame === null) {
+            return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
+        }
+
+        $property = PropertyPath::resolve($this->context->variables($frame, $contextId), $fullName);
+        if ($property === null) {
+            return $this->error($command, ErrorCode::PropertyDoesNotExist, "No such property '{$fullName}'");
+        }
+
+        $body = $this->propertySerializer($maxData)->serialize(
+            $property->name,
+            $property->fullName,
+            $property->value,
+            $command->intArgument('p', 0) ?? 0,
+        );
+
+        return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
+    }
+
+    /**
+     * The per-command data clamp of a property_get, or null to keep the max_data feature
+     *
+     * DBGp lets a client pass its own byte budget in -m; Xdebug reads `-m 0` as "no limit
+     * at all", which is how an IDE asks for a long string in full without switching to
+     * property_value.
+     */
+    private function requestedMaxData(Command $command): ?int
+    {
+        $requested = $command->intArgument('m');
+        if ($requested === null) {
+            return null;
+        }
+
+        return $requested > 0 ? $requested : self::UNLIMITED_DATA;
+    }
+
+    /**
      * eval: evaluates an expression in a suspended frame and returns the result
      *
      * The expression arrives base64-encoded in the data part; -d selects the stack frame
@@ -340,13 +409,16 @@ final class CommandDispatcher
 
     /**
      * Builds the serializer for one response, honoring the IDE's current max_* features
+     *
+     * $maxData overrides the feature for commands that carry their own limit: the -m
+     * argument of property_get, or property_value, which is defined as the unclamped read.
      */
-    private function propertySerializer(): PropertySerializer
+    private function propertySerializer(?int $maxData = null): PropertySerializer
     {
         return new PropertySerializer(
             maxDepth: $this->features->getInt('max_depth'),
             maxChildren: $this->features->getInt('max_children'),
-            maxData: $this->features->getInt('max_data'),
+            maxData: $maxData ?? $this->features->getInt('max_data'),
         );
     }
 

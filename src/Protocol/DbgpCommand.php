@@ -39,6 +39,9 @@ enum DbgpCommand: string
     case ContextGet   = 'context_get';
     case Eval         = 'eval';
 
+    case PropertyGet   = 'property_get';
+    case PropertyValue = 'property_value';
+
     case Run      = 'run';
     case StepInto = 'step_into';
     case StepOver = 'step_over';
