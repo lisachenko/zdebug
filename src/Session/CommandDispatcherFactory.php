@@ -21,10 +21,16 @@ use ZDebug\Protocol\ResponseBuilder;
 /**
  * Assembles the CommandDispatcher a session serves its commands with
  *
- * The dispatcher needs a suspended-state view that does not exist until the session
- * does, so the wiring is deferred to create() instead of happening inside the session's
+ * This is the composition root of the command surface: the one place that knows which
+ * handler objects exist. Adding a DBGp command touches the DbgpCommand enum, one new
+ * Handler class, and one line in create() - and forgetting the line is impossible to
+ * ship, because CommandDispatcher's completeness check throws for the uncovered enum
+ * case the first time any session (or test) is wired.
+ *
+ * The handlers need a suspended-state view that does not exist until the session does,
+ * so the wiring is deferred to create() instead of happening inside the session's
  * constructor: DebugSession hands over `$this` as a SuspendedState and never learns
- * which collaborators a dispatcher is made of.
+ * which objects a dispatcher is made of.
  */
 final class CommandDispatcherFactory
 {
@@ -39,14 +45,31 @@ final class CommandDispatcherFactory
 
     public function create(SuspendedState $state): CommandDispatcher
     {
-        return new CommandDispatcher(
-            $state,
-            $this->features,
-            $this->breakpoints,
-            $this->context,
-            $this->xml,
-            $this->evaluator,
-            $this->source,
-        );
+        $respond = new Handler\Responses($this->xml);
+        $reader  = new Handler\ContextReader($state, $this->context, $this->features);
+
+        return new CommandDispatcher($this->xml, [
+            new Handler\Status($state, $respond),
+            new Handler\FeatureGet($this->features, $this->xml),
+            new Handler\FeatureSet($this->features, $respond),
+            new Handler\BreakpointSet($this->breakpoints, $respond),
+            new Handler\BreakpointGet($this->breakpoints, $respond),
+            new Handler\BreakpointUpdate($this->breakpoints, $respond),
+            new Handler\BreakpointRemove($this->breakpoints, $respond),
+            new Handler\BreakpointList($this->breakpoints, $respond),
+            new Handler\StackDepth($state, $respond),
+            new Handler\StackGet($state, $respond),
+            new Handler\ContextNames($respond),
+            new Handler\ContextGet($state, $reader, $respond),
+            new Handler\TypemapGet($respond),
+            new Handler\Source($state, $this->source, $respond),
+            new Handler\PropertyGet($state, $reader, $respond),
+            new Handler\PropertySet($state, $this->context, $reader, $respond),
+            new Handler\Evaluate($state, $reader, $this->evaluator, $respond),
+            new Handler\Continuation(),
+            new Handler\Stop($respond),
+            new Handler\Detach($respond),
+            new Handler\StreamRedirect($respond),
+        ]);
     }
 }
