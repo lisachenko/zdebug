@@ -43,9 +43,9 @@ final class PropertySerializer
      * nested containers always start at their first page, which is the only page an IDE
      * can ask about without expanding them first.
      */
-    public function serialize(string $name, string $fullName, mixed $value, int $page = 0): string
+    public function serialize(string $name, string $fullName, mixed $value, int $page = 0, ?string $facet = null): string
     {
-        return $this->render($name, $fullName, $value, 0, max(0, $page));
+        return $this->render($name, $fullName, $value, 0, max(0, $page), $facet);
     }
 
     private function render(string $name, string $fullName, mixed $value, int $depth, int $page = 0, ?string $facet = null): string

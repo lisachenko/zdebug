@@ -71,6 +71,9 @@ final class Debugger
         private readonly ThrowHook $throwHook,
         private readonly ReturnHook $returnHook,
         private readonly SourceReader $sourceReader,
+        // Shared with the RETURN hook, which has to read breakpoint_include_return_value
+        // from the very store feature_set writes it to
+        private readonly Features $features,
     ) {}
 
     /**
@@ -103,7 +106,8 @@ final class Debugger
         $context     = new ContextProvider();
         $hook        = new StatementHook($gate, $breakpoints, $stepper, $log, $context, new ConditionEvaluator());
         $throwHook   = new ThrowHook($breakpoints, $log);
-        $returnHook  = new ReturnHook($gate, $breakpoints, $log);
+        $features    = new Features(PHP_VERSION);
+        $returnHook  = new ReturnHook($gate, $breakpoints, $features, $stepper, $log);
 
         $debugger = new self(
             $config,
@@ -116,6 +120,7 @@ final class Debugger
             $throwHook,
             $returnHook,
             new SourceReader($filter),
+            $features,
         );
 
         if ($config->isEnabled() && !$debugger->boot()) {
@@ -280,7 +285,7 @@ final class Debugger
     {
         $languageVersion = PHP_VERSION;
         $xml             = new ResponseBuilder();
-        $features        = new Features($languageVersion);
+        $features        = $this->features;
         $this->session   = new DebugSession(
             $connection,
             $xml,

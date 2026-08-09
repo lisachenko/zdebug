@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace ZDebug\Tests\Session;
 
 use ZDebug\Context\StackFrame;
+use ZDebug\Session\ReturnValue;
 use ZDebug\Session\SessionStatus;
 use ZDebug\Session\SuspendedState;
 
@@ -28,6 +29,8 @@ final class FakeSuspendedState implements SuspendedState
     private array $stack = [];
 
     private ?\Throwable $failure = null;
+
+    private ?ReturnValue $returnValue = null;
 
     public function __construct(private readonly SessionStatus $status = SessionStatus::Break) {}
 
@@ -66,6 +69,21 @@ final class FakeSuspendedState implements SuspendedState
         $this->guard();
 
         return $this->stack[$level] ?? null;
+    }
+
+    /**
+     * Makes the fake report a return stop, the way the RETURN hook does in production
+     */
+    public function returnsWith(mixed $value): void
+    {
+        $this->returnValue = new ReturnValue($value);
+    }
+
+    public function returnValue(): ?ReturnValue
+    {
+        $this->guard();
+
+        return $this->returnValue;
     }
 
     private function guard(): void

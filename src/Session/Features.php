@@ -42,6 +42,16 @@ final class Features
         'notify_ok'            => true,
         'resolved_breakpoints' => true,
         'breakpoint_details'   => true,
+
+        /**
+         * Return-value debugging, as introduced by Xdebug 3.2
+         *
+         * An IDE turns this on to ask for one extra stop when a stepped-through function
+         * returns, with the returned value attached. It is off until asked for: the stop
+         * costs a break the user did not press a button for, and an IDE that never sets
+         * the feature must never see one.
+         */
+        'breakpoint_include_return_value' => true,
     ];
 
     /** @var array<string, string> The values every session starts from */
@@ -62,6 +72,10 @@ final class Features
         'show_hidden'               => '0',
         'extended_properties'       => '0',
         'notify_ok'                 => '0',
+
+        // Advertised as supported (an IDE probes it before offering the feature) and off
+        // until the IDE asks for it
+        'breakpoint_include_return_value' => '0',
     ];
 
     public function __construct(string $languageVersion)
@@ -100,6 +114,28 @@ final class Features
         }
 
         return is_numeric($value) ? (int) $value : 0;
+    }
+
+    /**
+     * Whether the IDE has switched a boolean feature on
+     */
+    public function isEnabled(string $name): bool
+    {
+        return $this->getInt($name) === 1;
+    }
+
+    /**
+     * The property-rendering limits, as the max_* features currently stand
+     *
+     * Both the command dispatcher and the session render properties, and reading the
+     * three names in two places is how they would eventually come to disagree about
+     * which features govern a <property>.
+     *
+     * @return array{int, int, int} [max_depth, max_children, max_data]
+     */
+    public function propertyLimits(): array
+    {
+        return [$this->getInt('max_depth'), $this->getInt('max_children'), $this->getInt('max_data')];
     }
 
     /**

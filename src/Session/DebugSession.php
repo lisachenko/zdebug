@@ -14,6 +14,7 @@ namespace ZDebug\Session;
 
 use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Context\ContextProvider;
+use ZDebug\Context\PropertySerializer;
 use ZDebug\Context\StackCollector;
 use ZDebug\Context\StackFrame;
 use ZDebug\Log;
@@ -48,6 +49,11 @@ final class DebugSession implements SuspendedState
     /** @var list<StackFrame> Valid only while suspended */
     private array $suspendedStack = [];
 
+    /** The returning value of the suspended frame, for a return stop only */
+    private ?ReturnValue $suspendedReturn = null;
+
+    private readonly Features $features;
+
     private readonly CommandDispatcher $dispatcher;
 
     private readonly CommandParser $parser;
@@ -69,6 +75,7 @@ final class DebugSession implements SuspendedState
         ?CommandDispatcherFactory $dispatchers = null,
     ) {
         $this->parser     = new CommandParser();
+        $this->features   = $features;
         $factory          = $dispatchers ?? new CommandDispatcherFactory($features, $breakpoints, $context, $xml);
         $this->dispatcher = $factory->create($this);
     }
@@ -89,19 +96,22 @@ final class DebugSession implements SuspendedState
      * services commands until the next continuation. Blocks inside the opcode handler.
      *
      * $exception is set by the THROW hook only; it turns the continuation response into a
-     * first-chance exception break instead of the plain line/step one.
+     * first-chance exception break instead of the plain line/step one. $return is set by
+     * the RETURN hook and carries the value the frame is about to hand back.
      */
-    public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null): void
+    public function enterBreak(ExecutionData $top, ?ExceptionBreak $exception = null, ?ReturnValue $return = null): void
     {
-        $snapshot             = $this->stackCollector->collect($top);
-        $this->status         = SessionStatus::Break;
-        $this->suspendedStack = $snapshot->frames;
+        $snapshot              = $this->stackCollector->collect($top);
+        $this->status          = SessionStatus::Break;
+        $this->suspendedStack  = $snapshot->frames;
+        $this->suspendedReturn = $return;
 
         $this->answerPendingContinuation($exception);
         $this->commandLoop($snapshot->rawDepth);
 
         // Borrowed frames are only valid while suspended; drop them on resume
-        $this->suspendedStack = [];
+        $this->suspendedStack  = [];
+        $this->suspendedReturn = null;
     }
 
     /**
@@ -177,6 +187,11 @@ final class DebugSession implements SuspendedState
         return $this->suspendedStack[$level] ?? null;
     }
 
+    public function returnValue(): ?ReturnValue
+    {
+        return $this->suspendedReturn;
+    }
+
     /**
      * Reads and dispatches commands until a continuation, termination, or dropped peer
      */
@@ -234,6 +249,16 @@ final class DebugSession implements SuspendedState
                 $topFrame->line,
                 $exception?->className,
                 $exception !== null ? $exception->message : '',
+            );
+        }
+
+        // The returning value rides along with the break that reports it, so an IDE can
+        // show it without having to know it should go looking in the context
+        if ($this->suspendedReturn !== null) {
+            [$maxDepth, $maxChildren, $maxData] = $this->features->propertyLimits();
+            $body .= ResponseBuilder::returnValue(
+                (new PropertySerializer($maxDepth, $maxChildren, $maxData))
+                    ->serialize(ReturnValue::VARIABLE, ReturnValue::VARIABLE, $this->suspendedReturn->value),
             );
         }
 

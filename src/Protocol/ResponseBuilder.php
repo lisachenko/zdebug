@@ -80,7 +80,7 @@ final class ResponseBuilder
             'appid'                   => (string) $appId,
             'idekey'                  => $ideKey,
         ]);
-        $engine = '<engine version="' . self::escape(EngineIdentity::VERSION) . '">'
+        $engine = '<engine version="' . self::escape(EngineIdentity::XDEBUG_COMPAT_VERSION) . '">'
             . '<![CDATA[' . EngineIdentity::NAME . ']]></engine>';
 
         return self::PROLOG . '<init ' . $attributes . '>' . $engine . '</init>';
@@ -152,6 +152,18 @@ final class ResponseBuilder
         }
 
         return $element . '>' . self::escape($exceptionMessage) . '</xdebug:message>';
+    }
+
+    /**
+     * Wraps the returning value of a return stop in the element IDEs read it from
+     *
+     * Xdebug 3.2 put it in the continuation response rather than leaving the IDE to fetch
+     * it, so the value is on screen the moment the debuggee suspends; the same value is
+     * also reachable through context_get, for a client that would rather ask.
+     */
+    public static function returnValue(string $property): string
+    {
+        return '<xdebug:return_value>' . $property . '</xdebug:return_value>';
     }
 
     /**

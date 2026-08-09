@@ -12,12 +12,17 @@ declare(strict_types=1);
 
 namespace ZDebug\Instrumentation;
 
-use ZDebug\Breakpoint\Breakpoint;
 use ZDebug\Breakpoint\BreakpointRegistry;
 use ZDebug\Log;
 use ZDebug\Session\DebugSession;
+use ZDebug\Session\Features;
+use ZDebug\Session\ReturnValue;
+use ZDebug\Stepping\ResumeMode;
+use ZDebug\Stepping\StepController;
+use ZEngine\Reflection\ReflectionValue;
 use ZEngine\System\ExecutionData;
 use ZEngine\System\OpCode;
+use ZEngine\Type\OpLine;
 
 /**
  * The RETURN opcode handler: DBGp `return` breakpoints
@@ -39,9 +44,14 @@ use ZEngine\System\OpCode;
  */
 final class ReturnHook extends EngineHook
 {
+    /** The DBGp feature an IDE sets to ask for return values (Xdebug 3.2 and later) */
+    private const string FEATURE = 'breakpoint_include_return_value';
+
     public function __construct(
         private readonly OpArrayGate $gate,
         private readonly BreakpointRegistry $breakpoints,
+        private readonly Features $features,
+        private readonly StepController $stepper,
         Log $log,
     ) {
         parent::__construct($log);
@@ -54,11 +64,13 @@ final class ReturnHook extends EngineHook
 
     /**
      * Every single function call in the debuggee ends here, so the check that decides
-     * whether to look at the frame at all has to be one array test
+     * whether to look at the frame at all has to be cheap: two flags and an array test,
+     * with the return-value work reached only once the IDE has asked for it AND the user
+     * is actually stepping
      */
     protected function isRelevant(): bool
     {
-        return $this->breakpoints->hasReturnBreakpoints();
+        return $this->breakpoints->hasReturnBreakpoints() || $this->stopsForReturnValue();
     }
 
     protected function checkForBreak(ExecutionData $frame, DebugSession $session): void
@@ -68,13 +80,42 @@ final class ReturnHook extends EngineHook
             return;
         }
 
-        $matching = $this->breakpoints->forReturn($decision->functionName, self::boundClass($frame));
-        if ($matching === []) {
+        $suspend = $this->stopsForReturnValue();
+        if ($this->breakpoints->hasReturnBreakpoints()) {
+            $suspend = $this->breakpointTriggered($frame, $decision) || $suspend;
+        }
+        if (!$suspend) {
             return;
         }
 
+        // The value is attached to whichever of the two reasons stopped us: an IDE that
+        // asked for return values wants them on a return breakpoint just as much
+        $returned = $this->features->isEnabled(self::FEATURE)
+            ? new ReturnValue(self::returnedValue($frame))
+            : null;
+
+        $session->enterBreak($frame, null, $returned);
+    }
+
+    /**
+     * Whether a plain return should suspend because the user is stepping through it
+     *
+     * Only step_into and step_out, matching Xdebug: a step_over is a request to get past
+     * the call, and stopping inside the callee on its way out is the opposite of that.
+     */
+    private function stopsForReturnValue(): bool
+    {
+        return $this->features->isEnabled(self::FEATURE)
+            && ($this->stepper->mode() === ResumeMode::StepInto || $this->stepper->mode() === ResumeMode::StepOut);
+    }
+
+    /**
+     * Counts the hits of the matching return breakpoints, reporting whether one suspends
+     */
+    private function breakpointTriggered(ExecutionData $frame, GateDecision $decision): bool
+    {
         $triggered = [];
-        foreach ($matching as $breakpoint) {
+        foreach ($this->breakpoints->forReturn($decision->functionName, self::boundClass($frame)) as $breakpoint) {
             $breakpoint->hitCount++;
             if ($breakpoint->hitConditionSatisfied()) {
                 $triggered[] = $breakpoint;
@@ -82,9 +123,43 @@ final class ReturnHook extends EngineHook
         }
         $this->breakpoints->dropTemporary($triggered);
 
-        if ($triggered !== []) {
-            $session->enterBreak($frame);
+        return $triggered !== [];
+    }
+
+    /**
+     * Materializes the value the RETURN opline is about to hand back
+     *
+     * op1 is the returned operand, and reading it here is the whole reason this hook sits
+     * on RETURN rather than anywhere else: one instruction later the value has been moved
+     * into the caller's result slot and the frame that produced it is gone. IS_UNUSED is
+     * a bare `return;` or a function falling off its end - the compiler appends a RETURN
+     * of nothing - which is a genuine null rather than a failure to read.
+     */
+    private static function returnedValue(ExecutionData $frame): mixed
+    {
+        $opline = $frame->getOpline();
+        $type   = $opline->getOp1Type();
+        if ($type !== OpLine::IS_VAR && $type !== OpLine::IS_CV && $type !== OpLine::IS_TMP_VAR && $type !== OpLine::IS_CONST) {
+            return null;
         }
+
+        $operand = $opline->getOp1();
+        if ($operand === null) {
+            return null;
+        }
+        // getBaseType() reads the zval type alone; getType() would carry the type_info flags
+        if ($operand->getBaseType() === ReflectionValue::IS_REFERENCE) {
+            // ZVAL_DEREF: a borrowed view over the zend_reference's val slot
+            $operand = $operand->dereference();
+        }
+        if ($operand->getBaseType() === ReflectionValue::IS_UNDEF) {
+            return null;
+        }
+
+        $value = null;
+        $operand->getNativeValue($value);
+
+        return $value;
     }
 
     /**

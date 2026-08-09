@@ -140,6 +140,7 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Superglobals | ✅ | From the engine global symbol table |
 | Variable inspection (`property_get`) | ✅ | Expand any node by its `fullname` (`$e->previous->message`, `$rows[3]['id']`), `-p` paging, `-m` / `property_value` for untruncated data, `facet` visibility |
 | Editing variables (`property_set`) | ✅ | Writes through to the live frame; existing paths only, and a write the engine refuses (readonly, type mismatch) answers `success="0"` |
+| Return-value debugging | ✅ | Xdebug 3.2's `breakpoint_include_return_value`: one extra stop when a stepped-through function returns, the value in `<xdebug:return_value>` and under `$__RETURN_VALUE` |
 | `eval` in frame | ✅ | Read-only: evaluated against the locals of the frame selected by `-d` |
 | Exception breakpoints | 🚧 | First-chance via the `THROW` opcode — M3 |
 | Call / return breakpoints | ✅ | `-t call` on the function's first statement, `-t return` on its `RETURN` opline; `-m` takes `fn`, `Class::fn` or `Class->fn` |
@@ -147,6 +148,8 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Attach to already-running code | ❌ | Only code compiled after attach is steppable |
 | Opcache-cached scripts | ❌ | Invisible unless the cache is cold |
 | Profiling / tracing / coverage | ❌ | The engine's observer API can't be enabled from userland ([z-engine #106](https://github.com/lisachenko/z-engine/pull/106)) |
+
+**Engine version:** the `<engine>` element of the `<init>` packet reports the name `zdebug` and an **Xdebug protocol generation** (currently `3.2.0`) as its version. IDEs read that number as a capability level — PhpStorm gates return-value debugging on `>= 3.2` and decides from it alone — so it says which generation of Xdebug's protocol zdebug speaks, not which release of zdebug you are running. That is in `php -m`, `phpinfo()` and `php --ri zdebug`. `feature_get` still answers per feature and never claims support the dispatcher cannot deliver.
 
 **Performance:** every statement in an instrumented file crosses an FFI trampoline. Scope `ZDEBUG_PATH_FILTER` to the code you actually want to step through and leave the rest at full speed.
 
