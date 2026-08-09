@@ -29,6 +29,31 @@ final class FeaturesTest extends TestCase
         $this->assertSame('line conditional exception call return', $features->get('breakpoint_types'));
     }
 
+    /**
+     * An IDE probes this before offering return-value debugging at all: reporting it
+     * unsupported is what makes the feature grey out on the IDE side
+     */
+    public function testReturnValueDebuggingIsAdvertisedAndOffByDefault(): void
+    {
+        $features = new Features('8.4.19');
+
+        $this->assertTrue($features->supports('breakpoint_include_return_value'));
+        $this->assertSame('0', $features->get('breakpoint_include_return_value'));
+        $this->assertFalse($features->isEnabled('breakpoint_include_return_value'));
+
+        $this->assertTrue($features->set('breakpoint_include_return_value', '1'));
+        $this->assertTrue($features->isEnabled('breakpoint_include_return_value'));
+    }
+
+    public function testPropertyLimitsReadTheMaxFeatures(): void
+    {
+        $features = new Features('8.4.19');
+        $features->set('max_depth', '3');
+        $features->set('max_children', '7');
+
+        $this->assertSame([3, 7, 1024], $features->propertyLimits());
+    }
+
     public function testUnknownFeatureIsUnsupported(): void
     {
         $features = new Features('8.4.19');

@@ -155,6 +155,18 @@ final class ResponseBuilder
     }
 
     /**
+     * Wraps the returning value of a return stop in the element IDEs read it from
+     *
+     * Xdebug 3.2 put it in the continuation response rather than leaving the IDE to fetch
+     * it, so the value is on screen the moment the debuggee suspends; the same value is
+     * also reachable through context_get, for a client that would rather ask.
+     */
+    public static function returnValue(string $property): string
+    {
+        return '<xdebug:return_value>' . $property . '</xdebug:return_value>';
+    }
+
+    /**
      * Renders one <breakpoint> element, including hit bookkeeping and the condition
      *
      * hit_count / hit_value / hit_condition are what an IDE needs to render a hit-limited

@@ -25,6 +25,7 @@ use ZDebug\Session\CommandDispatcher;
 use ZDebug\Session\CommandDispatcherFactory;
 use ZDebug\Session\DispatchResult;
 use ZDebug\Session\Features;
+use ZDebug\Session\ReturnValue;
 use ZDebug\Session\SessionStatus;
 use ZDebug\Stepping\ResumeMode;
 use ZEngine\System\ExecutionData;
@@ -356,6 +357,52 @@ final class CommandDispatcherTest extends TestCase
 
         $response = $this->respondTo('context_get', ['c' => '0', 'd' => '0']);
         $this->assertSame('0', $response->getAttribute('context'));
+    }
+
+    /**
+     * The returning value is shown as a variable of the frame that is leaving, and only
+     * of that frame: a caller further up the stack is not returning anything yet
+     */
+    public function testTheReturnValueIsAVirtualLocalOfTheInnermostFrameOnly(): void
+    {
+        $this->state->suspendOn([
+            $this->frame(0, '/app/a.php', 12, 'compute'),
+            $this->frame(1, '/app/entry.php', 4, '{main}'),
+        ]);
+        $this->state->returnsWith(42);
+
+        $innermost = $this->childrenOf($this->respondTo('context_get', ['c' => '0', 'd' => '0']), 'property');
+        $this->assertCount(1, $innermost);
+        $this->assertSame(ReturnValue::VARIABLE, $innermost[0]->getAttribute('name'));
+        $this->assertSame('virtual return_value', $innermost[0]->getAttribute('facet'));
+        $this->assertSame('42', base64_decode($innermost[0]->textContent));
+
+        $this->assertSame([], $this->childrenOf($this->respondTo('context_get', ['c' => '0', 'd' => '1']), 'property'));
+        // Not a superglobal either, whatever the depth
+        $this->assertSame([], $this->childrenOf($this->respondTo('context_get', ['c' => '1', 'd' => '0']), 'property'));
+    }
+
+    public function testTheReturnValueIsReachableThroughPropertyGet(): void
+    {
+        $this->state->suspendOn([$this->frame(0, '/app/a.php', 12, 'compute')]);
+        $this->state->returnsWith(['n' => 7]);
+
+        $property = $this->childrenOf($this->respondTo('property_get', ['n' => ReturnValue::VARIABLE]), 'property')[0];
+        $this->assertSame('array', $property->getAttribute('type'));
+        $this->assertSame('virtual return_value', $property->getAttribute('facet'));
+
+        // It is not a slot of the frame, so it cannot be written to
+        $this->assertSame(300, $this->errorCodeOf(
+            $this->respondTo('property_set', ['n' => ReturnValue::VARIABLE], '1'),
+        ));
+    }
+
+    public function testWithoutAReturnStopNoVirtualVariableAppears(): void
+    {
+        $this->state->suspendOn([$this->frame(0, '/app/a.php', 12, 'compute')]);
+
+        $this->assertSame([], $this->childrenOf($this->respondTo('context_get', ['c' => '0', 'd' => '0']), 'property'));
+        $this->assertSame(300, $this->errorCodeOf($this->respondTo('property_get', ['n' => ReturnValue::VARIABLE])));
     }
 
     public function testContextGetRejectsADepthWithNoFrame(): void

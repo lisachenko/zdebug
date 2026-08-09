@@ -20,6 +20,7 @@ use ZDebug\Context\PropertyPath;
 use ZDebug\Context\PropertySerializer;
 use ZDebug\Context\PropertyWriter;
 use ZDebug\Context\SourceReader;
+use ZDebug\Context\StackFrame;
 use ZDebug\Protocol\Command;
 use ZDebug\Protocol\DbgpCommand;
 use ZDebug\Protocol\ErrorCode;
@@ -342,8 +343,8 @@ final class CommandDispatcher
 
         $serializer = $this->propertySerializer();
         $body       = '';
-        foreach ($this->context->variables($frame, $contextId) as $name => $value) {
-            $body .= $serializer->serialize($name, $name, $value);
+        foreach ($this->contextVariables($frame, $contextId, $depth) as $name => $value) {
+            $body .= $serializer->serialize($name, $name, $value, 0, self::facetOf($name));
         }
 
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [
@@ -436,7 +437,7 @@ final class CommandDispatcher
             return $this->error($command, ErrorCode::StackDepthInvalid, "No stack frame at depth {$depth}");
         }
 
-        $property = PropertyPath::resolve($this->context->variables($frame, $contextId), $fullName);
+        $property = PropertyPath::resolve($this->contextVariables($frame, $contextId, $depth), $fullName);
         if ($property === null) {
             return $this->error($command, ErrorCode::PropertyDoesNotExist, "No such property '{$fullName}'");
         }
@@ -446,6 +447,7 @@ final class CommandDispatcher
             $property->fullName,
             $property->value,
             $command->intArgument('p', 0) ?? 0,
+            self::facetOf($property->fullName),
         );
 
         return DispatchResult::reply($this->xml->response($command->name, $command->transactionId, [], $body));
@@ -476,6 +478,14 @@ final class CommandDispatcher
             return $this->error($command, ErrorCode::PropertyDoesNotExist, "'{$fullName}' does not address a property");
         }
 
+        // The returning value is a view of a value in flight, not a slot: it is grafted
+        // onto the context by contextVariables(), so nothing would receive a write. Saying
+        // so explicitly also settles the case of a debuggee that happens to have a real
+        // local of that name - reads show the virtual one, so writes must not reach the other
+        if ($path->base === ReturnValue::VARIABLE) {
+            return $this->error($command, ErrorCode::PropertyDoesNotExist, ReturnValue::VARIABLE . ' is a virtual property and cannot be written');
+        }
+
         $contextId = $command->intArgument('c', ContextProvider::CONTEXT_LOCALS) ?? ContextProvider::CONTEXT_LOCALS;
         $depth     = $command->intArgument('d', 0)                               ?? 0;
         $frame     = $this->state->frameAtLevel($depth);
@@ -492,7 +502,7 @@ final class CommandDispatcher
         // and only a path that DOES exist may come back as a refused (success="0") write.
         // A bare variable is exempt on purpose - a declared-but-unset local has a slot to
         // write and no value to resolve, and giving it one is a legitimate edit
-        $current = PropertyPath::resolve($this->context->variables($frame, $contextId), $fullName);
+        $current = PropertyPath::resolve($this->contextVariables($frame, $contextId, $depth), $fullName);
         if ($path->steps !== [] && $current === null) {
             return $this->error($command, ErrorCode::PropertyDoesNotExist, "No such property '{$fullName}'");
         }
@@ -594,7 +604,7 @@ final class CommandDispatcher
     {
         $frame = $this->state->frameAtLevel($depth);
         if ($frame !== null) {
-            return $this->context->variables($frame, ContextProvider::CONTEXT_LOCALS);
+            return $this->contextVariables($frame, ContextProvider::CONTEXT_LOCALS, $depth);
         }
 
         return $this->state->suspendedStack() === [] ? [] : null;
@@ -622,6 +632,39 @@ final class CommandDispatcher
     }
 
     /**
+     * A context's variables, with the virtual return value added where it belongs
+     *
+     * The returning value is not a variable of the frame - it is the frame's result, and
+     * it exists only for the break that stopped on the return - so it is grafted on here,
+     * once, rather than inside ContextProvider: every reader (context_get, property_get,
+     * eval) then sees the same set, and none of them has to know it is virtual.
+     *
+     * Only the locals of depth 0: the returning frame is the innermost one, and a caller
+     * further up the stack is not returning anything yet.
+     *
+     * @return array<string, mixed>
+     */
+    private function contextVariables(StackFrame $frame, int $contextId, int $depth): array
+    {
+        $variables = $this->context->variables($frame, $contextId);
+
+        $returned = $this->state->returnValue();
+        if ($returned !== null && $contextId === ContextProvider::CONTEXT_LOCALS && $depth === 0) {
+            $variables[ReturnValue::VARIABLE] = $returned->value;
+        }
+
+        return $variables;
+    }
+
+    /**
+     * The DBGp facet a context variable is reported under, or null for an ordinary one
+     */
+    private static function facetOf(string $name): ?string
+    {
+        return $name === ReturnValue::VARIABLE ? ReturnValue::FACET : null;
+    }
+
+    /**
      * Builds the serializer for one response, honoring the IDE's current max_* features
      *
      * $maxData overrides the feature for commands that carry their own limit: the -m
@@ -629,11 +672,9 @@ final class CommandDispatcher
      */
     private function propertySerializer(?int $maxData = null): PropertySerializer
     {
-        return new PropertySerializer(
-            maxDepth: $this->features->getInt('max_depth'),
-            maxChildren: $this->features->getInt('max_children'),
-            maxData: $maxData ?? $this->features->getInt('max_data'),
-        );
+        [$maxDepth, $maxChildren, $featureMaxData] = $this->features->propertyLimits();
+
+        return new PropertySerializer($maxDepth, $maxChildren, $maxData ?? $featureMaxData);
     }
 
     /**

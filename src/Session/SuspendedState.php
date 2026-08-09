@@ -40,4 +40,12 @@ interface SuspendedState
      * The frame at a DBGp stack depth (0 = innermost), or null when out of range
      */
     public function frameAtLevel(int $level): ?StackFrame;
+
+    /**
+     * The value the suspended frame is returning, when the break was a return stop
+     *
+     * Null for every other break. Only the innermost frame can have one - it is the frame
+     * that is leaving - which is why context_get exposes it at depth 0 and nowhere else.
+     */
+    public function returnValue(): ?ReturnValue;
 }
