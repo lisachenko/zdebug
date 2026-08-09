@@ -21,16 +21,14 @@ namespace ZDebug\Protocol;
  */
 final class Command
 {
-    /**
-     * @param string                $name          The command verb (e.g. "breakpoint_set")
-     * @param string                $transactionId The -i transaction id echoed back in the response
-     * @param array<string, string> $arguments     Option letter => value (without the leading '-')
-     * @param string|null           $data          Decoded trailing data (the part after '--'), or null
-     */
     public function __construct(
+        /** @var string The command verb, e.g. "breakpoint_set" */
         public readonly string $name,
+        /** @var string The -i transaction id, echoed back in the response */
         public readonly string $transactionId,
+        /** @var array<string, string> Option letter => value, without the leading '-' */
         public readonly array $arguments = [],
+        /** @var string|null Decoded trailing data (the part after '--'), or null when there was none */
         public readonly ?string $data = null,
     ) {}
 

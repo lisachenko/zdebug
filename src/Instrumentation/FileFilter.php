@@ -22,16 +22,10 @@ namespace ZDebug\Instrumentation;
  */
 final class FileFilter
 {
-    /** @var list<string> */
-    private array $prefixes;
-
-    /**
-     * @param list<string> $prefixes Realpath-normalized path prefixes; empty = observe all
-     */
-    public function __construct(array $prefixes)
-    {
-        $this->prefixes = $prefixes;
-    }
+    public function __construct(
+        /** @var list<string> Realpath-normalized path prefixes; empty = observe all */
+        private readonly array $prefixes,
+    ) {}
 
     public function accepts(string $file): bool
     {
