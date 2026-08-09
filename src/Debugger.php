@@ -123,7 +123,7 @@ final class Debugger
             $features,
         );
 
-        if ($config->isEnabled() && !$debugger->boot()) {
+        if ($config->isEnabled && !$debugger->boot()) {
             // Booting failed and rolled itself back: publish nothing, stay out of the way
             return $debugger;
         }

@@ -247,7 +247,7 @@ final class EngineHookTest extends TestCase
         // Only a session that already answered the IDE's first `run` is live; the status
         // machine gets there through the command loop, which needs a real IDE on the wire
         (new \ReflectionProperty(DebugSession::class, 'status'))->setValue($session, SessionStatus::Running);
-        $this->assertTrue($session->isLive());
+        $this->assertTrue($session->isLive);
 
         return $session;
     }

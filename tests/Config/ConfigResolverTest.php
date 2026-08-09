@@ -141,7 +141,7 @@ final class ConfigResolverTest extends TestCase
         ])->resolve();
 
         $this->assertSame('off', $config->mode);
-        $this->assertFalse($config->isEnabled());
+        $this->assertFalse($config->isEnabled);
     }
 
     public function testXdebugFillsOnlyTheGapsOwnValuesLeave(): void
@@ -174,6 +174,6 @@ final class ConfigResolverTest extends TestCase
         ])->resolve();
 
         $this->assertSame('debug', $config->mode);
-        $this->assertTrue($config->isEnabled());
+        $this->assertTrue($config->isEnabled);
     }
 }

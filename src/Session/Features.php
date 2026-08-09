@@ -131,11 +131,10 @@ final class Features
      * three names in two places is how they would eventually come to disagree about
      * which features govern a <property>.
      *
-     * @return array{int, int, int} [max_depth, max_children, max_data]
+     * @var array{int, int, int} [max_depth, max_children, max_data]
      */
-    public function propertyLimits(): array
-    {
-        return [$this->getInt('max_depth'), $this->getInt('max_children'), $this->getInt('max_data')];
+    public array $propertyLimits {
+        get => [$this->getInt('max_depth'), $this->getInt('max_children'), $this->getInt('max_data')];
     }
 
     /**

@@ -42,7 +42,7 @@ final class BreakpointRegistry
     public function add(Breakpoint $breakpoint): Breakpoint
     {
         $this->byId[$breakpoint->id] = $breakpoint;
-        if ($breakpoint->isLineType() && $breakpoint->file !== null && $breakpoint->line !== null) {
+        if ($breakpoint->isLineType && $breakpoint->file !== null && $breakpoint->line !== null) {
             $this->byLocation[$breakpoint->file][$breakpoint->line][] = $breakpoint;
         } elseif ($breakpoint->type === BreakpointType::Exception) {
             $this->exceptionBreakpoints[] = $breakpoint;
@@ -66,7 +66,7 @@ final class BreakpointRegistry
     public function relocate(Breakpoint $breakpoint, int $line): void
     {
         $file = $breakpoint->file;
-        if (!$breakpoint->isLineType() || $file === null || $breakpoint->line === null) {
+        if (!$breakpoint->isLineType || $file === null || $breakpoint->line === null) {
             $breakpoint->line = $line;
 
             return;
@@ -95,7 +95,7 @@ final class BreakpointRegistry
         }
         unset($this->byId[$id]);
 
-        if ($breakpoint->isLineType() && $breakpoint->file !== null && $breakpoint->line !== null) {
+        if ($breakpoint->isLineType && $breakpoint->file !== null && $breakpoint->line !== null) {
             $this->unindexLine($breakpoint, $breakpoint->file, $breakpoint->line);
         } else {
             $this->exceptionBreakpoints = self::without($this->exceptionBreakpoints, $id);
@@ -158,21 +158,19 @@ final class BreakpointRegistry
     /**
      * Whether any file has a line breakpoint (fast global gate for the statement hook)
      */
-    public function hasLineBreakpoints(): bool
-    {
-        return $this->byLocation !== [];
+    public bool $hasLineBreakpoints {
+        get => $this->byLocation !== [];
     }
 
     /**
      * Whether any exception breakpoint is registered (fast global gate for the THROW hook)
      *
-     * Deliberately ignores the enabled flag, exactly like hasLineBreakpoints(): this is the
+     * Deliberately ignores the enabled flag, exactly like $hasLineBreakpoints: this is the
      * cheap "is it worth resolving the thrown value at all" check, and forException() below
      * still filters disabled breakpoints out.
      */
-    public function hasExceptionBreakpoints(): bool
-    {
-        return $this->exceptionBreakpoints !== [];
+    public bool $hasExceptionBreakpoints {
+        get => $this->exceptionBreakpoints !== [];
     }
 
     /**
@@ -211,17 +209,15 @@ final class BreakpointRegistry
     /**
      * Whether any call breakpoint is registered (the statement hook's entry-detection gate)
      */
-    public function hasCallBreakpoints(): bool
-    {
-        return $this->callBreakpoints !== [];
+    public bool $hasCallBreakpoints {
+        get => $this->callBreakpoints !== [];
     }
 
     /**
      * Whether any return breakpoint is registered (fast global gate for the RETURN hook)
      */
-    public function hasReturnBreakpoints(): bool
-    {
-        return $this->returnBreakpoints !== [];
+    public bool $hasReturnBreakpoints {
+        get => $this->returnBreakpoints !== [];
     }
 
     /**

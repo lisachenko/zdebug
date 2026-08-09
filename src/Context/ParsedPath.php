@@ -29,11 +29,8 @@ final class ParsedPath
         public readonly array $steps,
     ) {}
 
-    /**
-     * The base variable name without its sigil, i.e. as the engine names a CV slot
-     */
-    public function baseName(): string
-    {
-        return ltrim($this->base, '$');
+    /** The base variable name without its sigil, i.e. as the engine names a CV slot */
+    public string $baseName {
+        get => ltrim($this->base, '$');
     }
 }

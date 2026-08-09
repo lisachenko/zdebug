@@ -77,7 +77,7 @@ final class ConditionEvaluator
      */
     public function isTruthy(string $expression, array $variables = []): bool
     {
-        return $this->evaluate($expression, $variables)->isTruthy();
+        return $this->evaluate($expression, $variables)->isTruthy;
     }
 
     /**

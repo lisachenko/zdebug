@@ -31,7 +31,7 @@ final class BreakpointRegistryTest extends TestCase
         $registry = new BreakpointRegistry();
         $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/app/x.php', line: 42));
 
-        $this->assertTrue($registry->hasLineBreakpoints());
+        $this->assertTrue($registry->hasLineBreakpoints);
         $this->assertCount(1, $registry->atLine('/app/x.php', 42));
         $this->assertCount(0, $registry->atLine('/app/x.php', 43));
         $this->assertCount(0, $registry->atLine('/other.php', 42));
@@ -53,7 +53,7 @@ final class BreakpointRegistryTest extends TestCase
         $this->assertTrue($registry->remove(5));
         $this->assertNull($registry->get(5));
         $this->assertCount(0, $registry->atLine('/app/x.php', 10));
-        $this->assertFalse($registry->hasLineBreakpoints());
+        $this->assertFalse($registry->hasLineBreakpoints);
         $this->assertFalse($registry->remove(5));
     }
 
@@ -88,14 +88,14 @@ final class BreakpointRegistryTest extends TestCase
     public function testExceptionGateIsClosedUntilAnExceptionBreakpointExists(): void
     {
         $registry = new BreakpointRegistry();
-        $this->assertFalse($registry->hasExceptionBreakpoints());
+        $this->assertFalse($registry->hasExceptionBreakpoints);
 
         // A line breakpoint must not open the THROW hook's gate
         $registry->add(new Breakpoint(id: 1, type: BreakpointType::Line, file: '/a.php', line: 3));
-        $this->assertFalse($registry->hasExceptionBreakpoints());
+        $this->assertFalse($registry->hasExceptionBreakpoints);
 
         $registry->add(new Breakpoint(id: 2, type: BreakpointType::Exception, exceptionName: \RuntimeException::class));
-        $this->assertTrue($registry->hasExceptionBreakpoints());
+        $this->assertTrue($registry->hasExceptionBreakpoints);
     }
 
     public function testExceptionGateClosesAgainWhenTheLastBreakpointIsRemoved(): void
@@ -105,10 +105,10 @@ final class BreakpointRegistryTest extends TestCase
         $registry->add(new Breakpoint(id: 2, type: BreakpointType::Exception, exceptionName: '*'));
 
         $this->assertTrue($registry->remove(1));
-        $this->assertTrue($registry->hasExceptionBreakpoints());
+        $this->assertTrue($registry->hasExceptionBreakpoints);
 
         $this->assertTrue($registry->remove(2));
-        $this->assertFalse($registry->hasExceptionBreakpoints());
+        $this->assertFalse($registry->hasExceptionBreakpoints);
         $this->assertSame([], $registry->forException(\RuntimeException::class));
     }
 
@@ -124,7 +124,7 @@ final class BreakpointRegistryTest extends TestCase
         // `-r 1` is a one-shot: the same line must never suspend the debuggee twice
         $this->assertNull($registry->get(1));
         $this->assertSame([], $registry->atLine('/a.php', 3));
-        $this->assertFalse($registry->hasLineBreakpoints());
+        $this->assertFalse($registry->hasLineBreakpoints);
     }
 
     public function testDropTemporaryLeavesOrdinaryBreakpointsAlone(): void
@@ -156,13 +156,13 @@ final class BreakpointRegistryTest extends TestCase
 
         // First pass: a hit, but the hit condition refuses it, so nothing triggered
         $temporary->hitCount++;
-        $this->assertFalse($temporary->hitConditionSatisfied());
+        $this->assertFalse($temporary->hitConditionSatisfied);
         $registry->dropTemporary([]);
         $this->assertCount(1, $registry->atLine('/a.php', 3));
 
         // Second pass: the break happens and spends the breakpoint
         $temporary->hitCount++;
-        $this->assertTrue($temporary->hitConditionSatisfied());
+        $this->assertTrue($temporary->hitConditionSatisfied);
         $registry->dropTemporary([$temporary]);
         $this->assertSame([], $registry->atLine('/a.php', 3));
     }
@@ -173,7 +173,7 @@ final class BreakpointRegistryTest extends TestCase
         $registry->add(new Breakpoint(id: 1, type: BreakpointType::Exception, enabled: false, exceptionName: '*'));
 
         // The gate is a cheap "anything registered at all" check; enablement is forException()'s job
-        $this->assertTrue($registry->hasExceptionBreakpoints());
+        $this->assertTrue($registry->hasExceptionBreakpoints);
         $this->assertSame([], $registry->forException(\RuntimeException::class));
     }
 }

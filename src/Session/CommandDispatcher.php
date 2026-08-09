@@ -99,7 +99,7 @@ final class CommandDispatcher
     private function status(Command $command): DispatchResult
     {
         return $this->reply($command, [
-            'status' => $this->state->status()->value,
+            'status' => $this->state->status->value,
             'reason' => 'ok',
         ]);
     }
@@ -302,14 +302,14 @@ final class CommandDispatcher
      */
     private function stackDepth(Command $command): DispatchResult
     {
-        return $this->reply($command, ['depth' => (string) count($this->state->suspendedStack())]);
+        return $this->reply($command, ['depth' => (string) count($this->state->suspendedStack)]);
     }
 
     private function stackGet(Command $command): DispatchResult
     {
         $requested = $command->intArgument('d');
         $body      = '';
-        foreach ($this->state->suspendedStack() as $frame) {
+        foreach ($this->state->suspendedStack as $frame) {
             if ($requested !== null && $frame->level !== $requested) {
                 continue;
             }
@@ -607,7 +607,7 @@ final class CommandDispatcher
             return $this->contextVariables($frame, ContextProvider::CONTEXT_LOCALS, $depth);
         }
 
-        return $this->state->suspendedStack() === [] ? [] : null;
+        return $this->state->suspendedStack === [] ? [] : null;
     }
 
     private function stop(Command $command): DispatchResult
@@ -648,7 +648,7 @@ final class CommandDispatcher
     {
         $variables = $this->context->variables($frame, $contextId);
 
-        $returned = $this->state->returnValue();
+        $returned = $this->state->returnValue;
         if ($returned !== null && $contextId === ContextProvider::CONTEXT_LOCALS && $depth === 0) {
             $variables[ReturnValue::VARIABLE] = $returned->value;
         }
@@ -672,7 +672,7 @@ final class CommandDispatcher
      */
     private function propertySerializer(?int $maxData = null): PropertySerializer
     {
-        [$maxDepth, $maxChildren, $featureMaxData] = $this->features->propertyLimits();
+        [$maxDepth, $maxChildren, $featureMaxData] = $this->features->propertyLimits;
 
         return new PropertySerializer($maxDepth, $maxChildren, $maxData ?? $featureMaxData);
     }

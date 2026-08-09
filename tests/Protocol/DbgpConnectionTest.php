@@ -90,7 +90,7 @@ final class DbgpConnectionTest extends TestCase
         fclose($this->peer);
 
         $this->assertNull($this->connection->receive());
-        $this->assertFalse($this->connection->isConnected());
+        $this->assertFalse($this->connection->isConnected);
     }
 
     public function testAnUnterminatedTailIsStillDeliveredBeforeTheDrop(): void
@@ -116,7 +116,7 @@ final class DbgpConnectionTest extends TestCase
         $this->assertGreaterThanOrEqual(0.2, $elapsed, 'the read waited for the timeout');
         $this->assertLessThan(5.0, $elapsed, 'the read did not wait forever');
         // Gone is gone: nothing further is attempted on that socket
-        $this->assertFalse($this->connection->isConnected());
+        $this->assertFalse($this->connection->isConnected);
         $this->assertNull($this->connection->receive());
     }
 
@@ -145,7 +145,7 @@ final class DbgpConnectionTest extends TestCase
         $this->connection->send(str_repeat('<response/>', 10_000));
         $this->connection->send('<response/>');
 
-        $this->assertFalse($this->connection->isConnected());
+        $this->assertFalse($this->connection->isConnected);
     }
 
     /**

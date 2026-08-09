@@ -51,7 +51,7 @@ final class FeaturesTest extends TestCase
         $features->set('max_depth', '3');
         $features->set('max_children', '7');
 
-        $this->assertSame([3, 7, 1024], $features->propertyLimits());
+        $this->assertSame([3, 7, 1024], $features->propertyLimits);
     }
 
     public function testUnknownFeatureIsUnsupported(): void

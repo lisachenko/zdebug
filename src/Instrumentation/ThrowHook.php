@@ -61,7 +61,7 @@ final class ThrowHook extends EngineHook
      */
     protected function isRelevant(): bool
     {
-        return $this->breakpoints->hasExceptionBreakpoints();
+        return $this->breakpoints->hasExceptionBreakpoints;
     }
 
     protected function checkForBreak(ExecutionData $frame, DebugSession $session): void

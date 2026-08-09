@@ -60,11 +60,8 @@ final class Config
         return Config\ConfigResolver::fromEnvironment();
     }
 
-    /**
-     * Whether the debugger is armed (mode !== 'off')
-     */
-    public function isEnabled(): bool
-    {
-        return $this->mode !== 'off';
+    /** Whether the debugger is armed (mode !== 'off') */
+    public bool $isEnabled {
+        get => $this->mode !== 'off';
     }
 }
