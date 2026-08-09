@@ -248,6 +248,30 @@ final class CommandDispatcherTest extends TestCase
         $this->assertSame(301, $this->errorCodeOf($this->respondTo('context_get', ['c' => '0', 'd' => '4'])));
     }
 
+    /**
+     * property_get is what an IDE sends to open a node the one-level context_get showed;
+     * a name it cannot resolve is the client's error (300), and a missing -n is a
+     * malformed command (3) - neither may ever come back as "not implemented"
+     */
+    public function testPropertyGetWithoutANameIsAClientError(): void
+    {
+        $this->assertSame(3, $this->errorCodeOf($this->respondTo('property_get')));
+        $this->assertSame(3, $this->errorCodeOf($this->respondTo('property_get', ['n' => '  '])));
+        $this->assertSame(3, $this->errorCodeOf($this->respondTo('property_value')));
+    }
+
+    public function testPropertyGetRejectsADepthWithNoFrame(): void
+    {
+        $this->assertSame(301, $this->errorCodeOf($this->respondTo('property_get', ['n' => '$a', 'd' => '4'])));
+    }
+
+    public function testPropertyGetOfAnUnresolvableNameIsError300(): void
+    {
+        $this->state->suspendOn([$this->frame(0, '/app/a.php', 12, 'compute')]);
+
+        $this->assertSame(300, $this->errorCodeOf($this->respondTo('property_get', ['n' => '$missing'])));
+    }
+
     public function testFeatureGetReadsAKnownFeature(): void
     {
         $response = $this->respondTo('feature_get', ['n' => 'max_depth']);

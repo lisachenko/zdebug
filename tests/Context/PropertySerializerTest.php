@@ -123,6 +123,47 @@ final class PropertySerializerTest extends TestCase
         $this->assertSame(2, $property->getElementsByTagName('property')->length);
     }
 
+    /**
+     * Paging is how property_get answers for a container an IDE cannot show in one go:
+     * the slice moves, while numchildren keeps describing the whole thing
+     */
+    public function testPageSelectsTheSliceOfChildrenToEmit(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1, maxChildren: 2);
+        $property   = $this->parse($serializer->serialize('a', '$a', [10, 20, 30, 40, 50], page: 1));
+
+        $this->assertSame('5', $property->getAttribute('numchildren'));
+        $this->assertSame('1', $property->getAttribute('page'));
+        $this->assertSame('2', $property->getAttribute('pagesize'));
+        $this->assertSame(['2' => '30', '3' => '40'], $this->children($property));
+    }
+
+    public function testTheLastPageMayBeShorterAndAPageBeyondTheEndIsEmpty(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 1, maxChildren: 2);
+
+        $last = $this->parse($serializer->serialize('a', '$a', [10, 20, 30], page: 1));
+        $this->assertSame(['2' => '30'], $this->children($last));
+
+        $beyond = $this->parse($serializer->serialize('a', '$a', [10, 20, 30], page: 9));
+        $this->assertSame('3', $beyond->getAttribute('numchildren'), 'the count still describes the whole array');
+        $this->assertSame([], $this->children($beyond));
+    }
+
+    /**
+     * Only the rendered value is paged: a child container is a node the IDE has not
+     * expanded yet, so there is no page it could have asked about
+     */
+    public function testNestedContainersAlwaysStartAtTheirFirstPage(): void
+    {
+        $serializer = new PropertySerializer(maxDepth: 2, maxChildren: 2);
+        $property   = $this->parse($serializer->serialize('a', '$a', [['x', 'y', 'z'], ['p', 'q']], page: 1));
+
+        $this->assertSame([], $this->children($property), 'page 1 of a two-element array is empty');
+        $this->assertSame('0', $this->parse($serializer->serialize('a', '$a', [['x', 'y', 'z']]))
+            ->getElementsByTagName('property')->item(0)?->getAttribute('page'));
+    }
+
     public function testMaxDataClampsScalarValue(): void
     {
         $serializer = new PropertySerializer(maxData: 4);
