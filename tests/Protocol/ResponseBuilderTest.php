@@ -148,8 +148,29 @@ final class ResponseBuilderTest extends TestCase
         $engine = $doc->getElementsByTagName('engine')->item(0);
         $this->assertInstanceOf(\DOMElement::class, $engine);
         $this->assertSame(EngineIdentity::NAME, $engine->textContent);
-        $this->assertSame(EngineIdentity::VERSION, $engine->getAttribute('version'));
+        $this->assertSame(EngineIdentity::XDEBUG_COMPAT_VERSION, $engine->getAttribute('version'));
         $this->assertStringContainsString('encoding="' . EngineIdentity::ENCODING . '"', ResponseBuilder::PROLOG);
+    }
+
+    /**
+     * The <engine> element answers two questions an IDE asks it, and they must not be
+     * confused: WHO is debugging (the name) and WHAT protocol generation it speaks (the
+     * version). PhpStorm reads only the second to gate features like return-value
+     * debugging, so the number has to name an Xdebug generation while the name stays
+     * honest about which engine is actually on the other end.
+     */
+    public function testTheEngineAdvertisesAnXdebugCapabilityLevelWithoutClaimingToBeXdebug(): void
+    {
+        $doc    = $this->loadXml($this->builder->init('file:///app/entry.php', 'phpstorm', 1, '8.4.19'));
+        $engine = $doc->getElementsByTagName('engine')->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $engine);
+
+        $this->assertSame('zdebug', $engine->textContent, 'the engine must not impersonate Xdebug');
+        $this->assertGreaterThanOrEqual(
+            0,
+            version_compare($engine->getAttribute('version'), '3.2.0'),
+            'return-value debugging is gated on >= 3.2 by IDEs that read this attribute',
+        );
     }
 
     public function testFeatureResponseCarriesTheValueAsElementText(): void

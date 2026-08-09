@@ -80,7 +80,7 @@ final class ResponseBuilder
             'appid'                   => (string) $appId,
             'idekey'                  => $ideKey,
         ]);
-        $engine = '<engine version="' . self::escape(EngineIdentity::VERSION) . '">'
+        $engine = '<engine version="' . self::escape(EngineIdentity::XDEBUG_COMPAT_VERSION) . '">'
             . '<![CDATA[' . EngineIdentity::NAME . ']]></engine>';
 
         return self::PROLOG . '<init ' . $attributes . '>' . $engine . '</init>';
