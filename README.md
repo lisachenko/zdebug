@@ -1,26 +1,26 @@
 <div align="center">
 
-# 🐛 zdebug
+# 🐛 ZDebug
 
 ### Step-debug PHP with PHP.
 
-**zdebug** is an Xdebug-compatible step debugger with **no C extension**. Your IDE attaches over DBGp — Xdebug's own protocol — while pure PHP code drives the Zend VM through FFI, courtesy of [z-engine](https://github.com/lisachenko/z-engine). Set breakpoints, step through code, and inspect the stack and variables in PhpStorm or VS Code, with nothing compiled and nothing installed but Composer packages.
+**ZDebug** is an Xdebug-compatible step debugger with **no C extension**. Your IDE attaches over DBGp — Xdebug's own protocol — while pure PHP code drives the Zend VM through FFI, courtesy of [z-engine](https://github.com/lisachenko/z-engine). Set breakpoints, step through code, inspect and edit the stack and variables in PhpStorm or VS Code, with nothing compiled and nothing installed but Composer packages.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/lisachenko/zdebug/ci.yml?branch=main&label=CI)](https://github.com/lisachenko/zdebug/actions/workflows/ci.yml)
 [![PHP Version](https://img.shields.io/badge/php-8.4%20%7C%208.5-8892BF.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PHPStan](https://img.shields.io/badge/PHPStan-level%20max-brightgreen.svg)](https://phpstan.org/)
-[![Status](https://img.shields.io/badge/status-experimental%20PoC-orange.svg)](#status--roadmap)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#status)
 
 </div>
 
 ---
 
-> **⚠️ Experimental proof of concept.** zdebug pokes live engine memory through z-engine. It is a research vehicle, not a production tool. Pin your PHP version, keep the JIT off, and expect rough edges.
+> **⚠️ Experimental.** ZDebug pokes live engine memory through z-engine. It is a research vehicle, not a production tool. Pin your PHP version, keep the JIT off, and expect rough edges.
 
 ## Why this exists
 
-Xdebug is a compiled `zend_extension`. That is the right design — and also a barrier: you need the matching binary for your exact PHP build, a working extension toolchain, and the willingness to load native code into your interpreter. zdebug asks a different question: **how much of a step debugger can you build in pure PHP?** The answer, it turns out, is *most of it* — because z-engine already hands you the engine's internals as ordinary PHP objects. zdebug is the debugger that question produces.
+Xdebug is a compiled `zend_extension`. That is the right design — and also a barrier: you need the matching binary for your exact PHP build, a working extension toolchain, and the willingness to load native code into your interpreter. ZDebug asks a different question: **how much of a step debugger can you build in pure PHP?** The answer, it turns out, is *most of it* — because z-engine already hands you the engine's internals as ordinary PHP objects. ZDebug is the debugger that question produces.
 
 ## How it works
 
@@ -29,7 +29,7 @@ Xdebug is a compiled `zend_extension`. That is the right design — and also a b
                                      │  each statement emits an EXT_STMT opline
                                      ▼
    ┌──────────────────────────────────────────────────────────────────────┐
-   │  Zend VM  ──▶  EXT_STMT opcode  ──▶  zdebug's user-opcode handler      │
+   │  Zend VM  ──▶  EXT_STMT opcode  ──▶  ZDebug's user-opcode handler    │
    └──────────────────────────────────────────────────────────────────────┘
                                      │  (file, line) matches a breakpoint?
                                      ▼
@@ -41,7 +41,7 @@ Xdebug is a compiled `zend_extension`. That is the right design — and also a b
                      resume → return ZEND_USER_OPCODE_DISPATCH
 ```
 
-The engine is debugging itself. z-engine compiles your code with `COMPILE_EXTENDED_STMT` so every statement carries an `EXT_STMT` opline, installs a userland handler for that opcode, and hands zdebug a rich view of each suspended frame (`ExecutionData`) — stack, arguments, named locals, `$this`. zdebug turns that into a DBGp session your IDE already knows how to talk to. See z-engine's [`docs/self-debugging.md`](https://github.com/lisachenko/z-engine/blob/master/docs/self-debugging.md) for the full feasibility study this package implements.
+The engine is debugging itself. z-engine compiles your code with `COMPILE_EXTENDED_STMT` so every statement carries an `EXT_STMT` opline, installs a userland handler for that opcode, and hands ZDebug a rich view of each suspended frame (`ExecutionData`) — stack, arguments, named locals, `$this`. Two more opcode handlers cover the exits: `THROW` for first-chance exception breakpoints, `RETURN` for return breakpoints and return-value debugging. ZDebug turns all of that into a DBGp session your IDE already knows how to talk to. See z-engine's [`docs/self-debugging.md`](https://github.com/lisachenko/z-engine/blob/master/docs/self-debugging.md) for the feasibility study this package implements.
 
 ## Quick start
 
@@ -76,10 +76,10 @@ require __DIR__ . '/app.php';            // compiled after attach → debuggable
 
 ## Drop-in Xdebug compatibility
 
-zdebug reads **Xdebug's own configuration** — so if you already have an Xdebug setup, it just works. Both the `xdebug.*` ini directives and the `XDEBUG_*` environment are honored, with Xdebug 3 semantics:
+ZDebug reads **Xdebug's own configuration** — so if you already have an Xdebug setup, it just works. Both the `xdebug.*` ini directives and the `XDEBUG_*` environment are honored, with Xdebug 3 semantics:
 
 ```bash
-# An existing Xdebug 3 configuration drives zdebug unchanged:
+# An existing Xdebug 3 configuration drives ZDebug unchanged:
 php -d ffi.enable=1 -d opcache.jit=off \
     -d xdebug.mode=debug -d xdebug.client_host=127.0.0.1 -d xdebug.client_port=9003 \
     -d auto_prepend_file=vendor/lisachenko/zdebug/bootstrap/zdebug.php \
@@ -93,10 +93,10 @@ Recognized Xdebug settings: `xdebug.mode` / `XDEBUG_MODE` (step debugging needs 
 
 ## It shows up like a real extension
 
-zdebug registers itself as a genuine engine module at runtime — the same technique APCu used to stand in for APC. Even though there's no compiled extension, the standard tooling reports it:
+ZDebug registers itself as a genuine engine module at runtime — the same technique APCu used to stand in for APC. Even though there's no compiled extension, the standard tooling reports it:
 
 ```php
-extension_loaded('zdebug');          // true
+extension_loaded('zdebug');                        // true
 in_array('zdebug', get_loaded_extensions(), true); // true
 ```
 
@@ -108,12 +108,15 @@ IDE debugger    => no C extension (z-engine FFI)
 Mode            => debug
 Client host     => 127.0.0.1
 Client port     => 9003
+IDE key         => zdebug
 Debug session   => active
 ```
 
+The lowercase `zdebug` is deliberate: it is the extension identifier the engine, `php -m` and `php --ri` know it by, and the name the `<engine>` element of the DBGp `<init>` packet carries. *ZDebug* is the project; `zdebug` is what it answers to in code.
+
 ## Configuration
 
-zdebug's **native** settings (these take precedence over any Xdebug settings above):
+ZDebug's **native** settings (these take precedence over any Xdebug settings above):
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -130,11 +133,11 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 
 ## What works vs. Xdebug
 
-| Feature | zdebug | Notes |
+| Feature | ZDebug | Notes |
 |---|---|---|
-| Line breakpoints | ✅ | On any code compiled after attach |
+| Line breakpoints | ✅ | On any code compiled after attach; temporary (`-r 1`) breakpoints included |
 | Conditional breakpoints | ✅ | Condition evaluated in the frame; hit counts via `-h` / `-o` (`>=`, `==`, `%`) |
-| Step over / into / out | 🚧 | Depth machine in place; wired up in M2 |
+| Step over / into / out | ✅ | Depth-based resume machine over statement hits. Internal (C) functions emit no `EXT_STMT`, so stepping *into* them is impossible — same as Xdebug |
 | Stack traces | ✅ | Full `getPrevious()` walk, with call sites |
 | Locals, args, `$this` | ✅ | Named, from CV slots — no symbol table needed |
 | Superglobals | ✅ | From the engine global symbol table |
@@ -142,29 +145,35 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 | Editing variables (`property_set`) | ✅ | Writes through to the live frame; existing paths only, and a write the engine refuses (readonly, type mismatch) answers `success="0"` |
 | Return-value debugging | ✅ | Xdebug 3.2's `breakpoint_include_return_value`: one extra stop when a stepped-through function returns, the value in `<xdebug:return_value>` and under `$__RETURN_VALUE` |
 | `eval` in frame | ✅ | Read-only: evaluated against the locals of the frame selected by `-d` |
-| Exception breakpoints | 🚧 | First-chance via the `THROW` opcode — M3 |
+| Exception breakpoints | ✅ | First-chance, on the `throw` itself via the `THROW` opcode — before unwinding, with the throwing frame still readable. **Userland `throw` only**: engine-raised errors (`TypeError`, `DivisionByZeroError`, …) and throws from internal functions execute no `THROW` opline and stay invisible |
 | Call / return breakpoints | ✅ | `-t call` on the function's first statement, `-t return` on its `RETURN` opline; `-m` takes `fn`, `Class::fn` or `Class->fn` |
-| `source`, `stack_depth`, `typemap_get`, `breakpoint_update` | ✅ | `source` reads only within `ZDEBUG_PATH_FILTER` — a DBGp socket is not a filesystem |
+| `source`, `stack_depth`, `typemap_get`, `breakpoint_update`, `detach` | ✅ | `source` reads only within `ZDEBUG_PATH_FILTER` — a DBGp socket is not a filesystem. `detach` puts the compiler options back and lets the script finish undebugged |
+| Async pause (`break`) | ❌ | z-engine wraps the VM interrupt this needs, but the DBGp `break` command is not wired up; `supports_async` is advertised as `0` |
+| `stdout` / `stderr` redirection | ❌ | Answered `success="0"` rather than refused — read the debuggee's output where it already goes |
+| Return by reference, generator returns | ❌ | `RETURN_BY_REF` and `GENERATOR_RETURN` are different opcodes, so return breakpoints and return values do not fire for them. Statements inside a generator step normally |
 | Attach to already-running code | ❌ | Only code compiled after attach is steppable |
 | Opcache-cached scripts | ❌ | Invisible unless the cache is cold |
 | Profiling / tracing / coverage | ❌ | The engine's observer API can't be enabled from userland ([z-engine #106](https://github.com/lisachenko/z-engine/pull/106)) |
 
-**Engine version:** the `<engine>` element of the `<init>` packet reports the name `zdebug` and an **Xdebug protocol generation** (currently `3.2.0`) as its version. IDEs read that number as a capability level — PhpStorm gates return-value debugging on `>= 3.2` and decides from it alone — so it says which generation of Xdebug's protocol zdebug speaks, not which release of zdebug you are running. That is in `php -m`, `phpinfo()` and `php --ri zdebug`. `feature_get` still answers per feature and never claims support the dispatcher cannot deliver.
+**Engine version:** the `<engine>` element of the `<init>` packet reports the name `zdebug` and an **Xdebug protocol generation** (currently `3.2.0`) as its version. IDEs read that number as a capability level — PhpStorm gates return-value debugging on `>= 3.2` and decides from it alone — so it says which generation of Xdebug's protocol ZDebug speaks, not which release of ZDebug you are running. That release is what `php -m`, `phpinfo()` and `php --ri zdebug` show. `feature_get` still answers per feature and never claims support the dispatcher cannot deliver.
 
-**Performance:** every statement in an instrumented file crosses an FFI trampoline. Scope `ZDEBUG_PATH_FILTER` to the code you actually want to step through and leave the rest at full speed.
+**Performance:** every statement in an instrumented file crosses an FFI trampoline. The observation decision is memoized once per op_array, so code outside the filter costs one cached lookup — but scope `ZDEBUG_PATH_FILTER` to the code you actually want to step through and leave the rest at full speed.
 
 ## Requirements
 
 - PHP **8.4 or 8.5** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor
 - `ffi.enable=1` and **`opcache.jit=off`** (the JIT rewrites the executor internals the hook plugs into)
-- Your app's code must load **after** zdebug attaches — `auto_prepend_file` guarantees this
+- Your app's code must load **after** ZDebug attaches — `auto_prepend_file` guarantees this
 
-## Status & roadmap
+## Status
 
-zdebug is at **M1**: a working vertical slice — your IDE attaches, hits a line breakpoint, and inspects the stack and locals, proven by an end-to-end test that plays the IDE against a real child process.
+The debugger is complete enough to use as one: an IDE attaches, sets line, conditional, call, return and exception breakpoints, steps over/into/out, walks the stack, reads and writes variables, evaluates expressions, fetches source and detaches — all of it proven end-to-end by a test suite that plays a fake IDE against a real spawned child process, on PHP 8.4 and 8.5 across linux-x64 and macOS (x64 + arm64).
 
-- **M2** — step over/into/out, deeper variable inspection with paging, `source`, `detach`
-- **M3** — first-chance exception breakpoints, async "pause", per-file instrumentation gating for near-zero overhead outside the filter (conditional breakpoints, hit counts and `eval` have landed)
+What is left is a short list, and most of it is the engine's doing rather than unfinished plumbing:
+
+- **Async pause.** The DBGp `break` command, on top of z-engine's VM interrupt hook — the one missing command of the core set.
+- **Stepping across `yield` / fiber boundaries.** Suspension rewrites the `prev_execute_data` topology mid-flight; the depth machine has not been proven against it.
+- **The hard limits** in the table above — compile-order coverage, opcache, JIT off, no profiling or tracing — which no amount of work on this side removes.
 
 ## Credits
 
