@@ -378,8 +378,13 @@ final class CommandDispatcherTest extends TestCase
         $this->assertSame('42', base64_decode($innermost[0]->textContent));
 
         $this->assertSame([], $this->childrenOf($this->respondTo('context_get', ['c' => '0', 'd' => '1']), 'property'));
-        // Not a superglobal either, whatever the depth
-        $this->assertSame([], $this->childrenOf($this->respondTo('context_get', ['c' => '1', 'd' => '0']), 'property'));
+
+        // Not a superglobal either, whatever the depth. That context is the engine's real
+        // global symbol table, which this process has one of, so the claim is that the
+        // return value is not among the names it reports - not that it reports none
+        $superglobals = $this->childrenOf($this->respondTo('context_get', ['c' => '1', 'd' => '0']), 'property');
+        $names        = array_map(static fn(\DOMElement $property): string => $property->getAttribute('name'), $superglobals);
+        $this->assertNotContains(ReturnValue::VARIABLE, $names);
     }
 
     public function testTheReturnValueIsReachableThroughPropertyGet(): void
