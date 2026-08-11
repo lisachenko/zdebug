@@ -1,9 +1,13 @@
-# Contributor notes for zdebug
+# Contributor notes for ZDebug
 
-zdebug is a pure-PHP step debugger: your IDE attaches over DBGp (Xdebug's protocol)
+ZDebug is a pure-PHP step debugger: your IDE attaches over DBGp (Xdebug's protocol)
 while PHP code drives the Zend VM through [z-engine](https://github.com/lisachenko/z-engine)
 FFI hooks. There is no C extension. Read z-engine's `docs/self-debugging.md` first — it
 is the design ground truth this package implements.
+
+The project is *ZDebug*; the extension identifier, the Composer package, the `ZDEBUG_*`
+environment and the `<engine>` name on the wire are all lowercase `zdebug`. Keep that
+split: prose says ZDebug, code says `zdebug`.
 
 ## Branch model
 
@@ -20,9 +24,25 @@ on PHP 8.5) and Composer resolves the matching one for the running PHP.
   `bootstrap/zdebug.php` entry (via `auto_prepend_file` or an early `require`) guarantees
   this. Opcache-cached scripts compiled before the debugger are invisible.
 
+## Where things live
+
+- `Instrumentation/` — the three engine hooks, all extending `EngineHook`, which owns the
+  latch/never-throw envelope below: `StatementHook` (`EXT_STMT`, breakpoints and
+  stepping), `ThrowHook` (`THROW`, first-chance exception breakpoints), `ReturnHook`
+  (`RETURN`, return breakpoints and return values). `OpArrayGate` memoizes the
+  "is this op_array observed" decision per op_array address — the steady-state fast path.
+- `Session/` — `DebugSession` owns the suspend loop; every DBGp command is one object in
+  `Session/Handler/`. Adding a command touches three places: the `DbgpCommand` enum, a new
+  handler class, and one line in `CommandDispatcherFactory::create()`. Forgetting the last
+  is impossible to ship — `CommandDispatcher` throws for an enum case no handler covers.
+- `Protocol/` — the wire: framing, command parsing, XML responses, and `EngineIdentity`,
+  the single source for what the engine calls itself in `<init>` and in `feature_get`.
+- `Context/` — stack and variable inspection, property paths, serialization, writes.
+- `Config/` — layered resolution: defaults → Xdebug ini/env → `ZDEBUG_*` → explicit array.
+
 ## The one hard rule: never throw inside an engine callback
 
-The EXT_STMT / THROW / RETURN / interrupt handlers run inside FFI callbacks. A `\Throwable` that
+The EXT_STMT / THROW / RETURN handlers run inside FFI callbacks. A `\Throwable` that
 escapes one is a **fatal engine abort** ("Throwing from FFI callbacks is not allowed"),
 not a catchable error. Every handler entry point therefore:
 
@@ -46,7 +66,11 @@ composer phpstan          # level max
 composer cs:check         # @PER-CS2.0 (composer cs:fix to apply)
 ```
 
+Protocol behavior is proven end-to-end, not mocked: `tests/Integration/` drives a real
+child process with a `FakeIde` on the other end of the socket. A new command or breakpoint
+type is not done until an integration test plays it against a running debuggee.
+
 ## Commit conventions
 
 Conventional commits with scopes: `protocol`, `session`, `hook`, `context`,
-`breakpoint`, `stepping`, `ci`, `docs`.
+`breakpoint`, `stepping`, `config`, `ci`, `docs`.
