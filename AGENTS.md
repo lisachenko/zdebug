@@ -11,13 +11,14 @@ split: prose says ZDebug, code says `zdebug`.
 
 ## Branch model
 
-`main` supports PHP 8.4 and 8.5 in parallel. Engine memory layouts change between PHP
-minors, so each minor rides its own z-engine line (`8.4.x-dev` on PHP 8.4, `8.5.x-dev`
-on PHP 8.5) and Composer resolves the matching one for the running PHP.
+`main` supports PHP 8.4, 8.5 and 8.6 (beta) in parallel. Engine memory layouts change
+between PHP minors, so each minor rides its own z-engine line (`8.4.x-dev` on PHP 8.4,
+`8.5.x-dev` on PHP 8.5, `8.6.x-dev` — the master branch alias — on PHP 8.6) and
+Composer resolves the matching one for the running PHP.
 
 ## Environment requirements
 
-- PHP `^8.4` (8.4 and 8.5 are tested in CI), **NTS, linux-x64 or darwin-x64/arm64** (the platforms z-engine ships definitions for).
+- PHP `^8.4` (8.4, 8.5 and the 8.6 beta are tested in CI), **NTS, linux-x64 or darwin-x64/arm64** (the platforms z-engine ships definitions for).
 - `ffi.enable=1` and **JIT off** (`opcache.jit=off`) — the JIT rewrites the executor
   internals the statement hook plugs into. Both must come from `php.ini`/`-d`.
 - The debuggee's code must be compiled **after** the debugger initializes; the
