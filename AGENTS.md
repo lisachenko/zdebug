@@ -18,7 +18,7 @@ Composer resolves the matching one for the running PHP.
 
 ## Environment requirements
 
-- PHP `^8.4` (8.4, 8.5 and the 8.6 beta are tested in CI), **NTS, linux-x64 or darwin-x64/arm64** (the platforms z-engine ships definitions for).
+- PHP `^8.4` (8.4, 8.5 and the 8.6 beta are tested in CI), **NTS, linux-x64 or darwin-x64/arm64** (the platforms z-engine ships definitions for). Exception: 8.6 on darwin-arm64 is broken by PHP 8.6's tail-call VM (lisachenko/z-engine#280) — that CI leg is experimental until the upstream issue is resolved.
 - `ffi.enable=1` and **JIT off** (`opcache.jit=off`) — the JIT rewrites the executor
   internals the statement hook plugs into. Both must come from `php.ini`/`-d`.
 - The debuggee's code must be compiled **after** the debugger initializes; the

@@ -11,6 +11,8 @@ jobs:
   tests:
     name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Experimental legs may fail without failing the workflow (see the matrix)
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +27,12 @@ jobs:
           # matrix. macos-latest is arm64, macos-15-intel is x64.
           - { os: macos-latest, php: '8.4' }
           - { os: macos-latest, php: '8.5' }
-          - { os: macos-latest, php: '8.6' }
+          # EXPERIMENTAL: Apple Silicon clang builds of PHP 8.6 use the new
+          # tail-call VM (ZEND_VM_KIND_TAILCALL), under which z-engine's user
+          # opcode handlers corrupt VM state (lisachenko/z-engine#280) - every
+          # instrumented debuggee crashes. The leg keeps running for visibility
+          # and turns required again once the upstream issue is resolved.
+          - { os: macos-latest, php: '8.6', experimental: true }
           - { os: macos-15-intel, php: '8.4' }
           - { os: macos-15-intel, php: '8.5' }
           - { os: macos-15-intel, php: '8.6' }
@@ -91,97 +98,3 @@ jobs:
 
       - name: Check coding standards
         run: composer cs:check
-
-  # TEMPORARY diagnostic job for the macOS arm64 + PHP 8.6 integration failure on
-  # PR #24 (removed, with .probe/, once root-caused). Layers the debugger's boot
-  # sequence one step at a time on the failing runner, with 8.5 as green control,
-  # and captures an lldb backtrace of the crash CI only reports as "exit code 11".
-  diagnose-arm64-php86:
-    name: Diagnose arm64 (PHP ${{ matrix.php }})
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        php: ['8.5', '8.6']
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
-      HOMEBREW_NO_INSTALL_CLEANUP: '1'
-      PHP_FLAGS: -d ffi.enable=1 -d zend.assertions=1 -d opcache.enable_cli=0 -d opcache.jit=off
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: ffi, opcache
-          ini-values: ffi.enable=1, zend.assertions=1, opcache.enable=1, opcache.enable_cli=0, opcache.jit=off, opcache.jit_buffer_size=0
-          coverage: none
-
-      - name: Environment report
-        run: |
-          uname -m
-          php -v
-          php -r 'echo "ZEND_THREAD_SAFE=", var_export(ZEND_THREAD_SAFE, true), " PHP_DEBUG=", PHP_DEBUG, PHP_EOL;'
-
-      - name: Install dependencies
-        uses: ramsey/composer-install@v3
-
-      - name: 'L1: Core::init only'
-        if: always()
-        run: php $PHP_FLAGS .probe/l1-core-init.php; echo "exit=$?"
-
-      - name: 'L2: + COMPILE_EXTENDED_STMT'
-        if: always()
-        run: php $PHP_FLAGS .probe/l2-ext-stmt-compile.php; echo "exit=$?"
-
-      - name: 'L3: + EXT_STMT handler'
-        if: always()
-        run: php $PHP_FLAGS .probe/l3-ext-stmt-handler.php; echo "exit=$?"
-
-      - name: 'L4: + RETURN and THROW handlers'
-        if: always()
-        run: php $PHP_FLAGS .probe/l4-all-hooks.php; echo "exit=$?"
-
-      - name: 'L5: zdebug module-check fixture (module registration, no IDE)'
-        if: always()
-        run: php $PHP_FLAGS tests/Integration/fixtures/module-check.php; echo "exit=$?"
-
-      - name: 'L6: full zdebug boot, unreachable IDE (the failing repro)'
-        if: always()
-        env:
-          ZDEBUG_MODE: debug
-          ZDEBUG_CLIENT_HOST: 127.0.0.1
-          ZDEBUG_CLIENT_PORT: '1'
-          ZDEBUG_IDEKEY: phpunit
-          ZDEBUG_CONNECT_TIMEOUT_MS: '200'
-        run: |
-          export ZDEBUG_PATH_FILTER="$PWD/tests/Integration/fixtures"
-          php $PHP_FLAGS tests/Integration/fixtures/entry.php; echo "exit=$?"
-
-      - name: 'L6 under lldb (backtrace on crash)'
-        if: always()
-        env:
-          ZDEBUG_MODE: debug
-          ZDEBUG_CLIENT_HOST: 127.0.0.1
-          ZDEBUG_CLIENT_PORT: '1'
-          ZDEBUG_IDEKEY: phpunit
-          ZDEBUG_CONNECT_TIMEOUT_MS: '200'
-        run: |
-          export ZDEBUG_PATH_FILTER="$PWD/tests/Integration/fixtures"
-          lldb --batch \
-            -o 'run' \
-            -k 'thread backtrace all' \
-            -k 'register read' \
-            -k 'quit' \
-            -- "$(which php)" $PHP_FLAGS tests/Integration/fixtures/entry.php || true
-
-      - name: macOS crash reports
-        if: always()
-        run: |
-          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null || true
-          for f in ~/Library/Logs/DiagnosticReports/php*; do
-            [ -e "$f" ] || continue
-            echo "===== $f ====="
-            head -c 20000 "$f"
-          done
