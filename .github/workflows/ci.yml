@@ -11,8 +11,6 @@ jobs:
   tests:
     name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Experimental legs may fail without failing the workflow (see the matrix)
-    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -27,12 +25,7 @@ jobs:
           # matrix. macos-latest is arm64, macos-15-intel is x64.
           - { os: macos-latest, php: '8.4' }
           - { os: macos-latest, php: '8.5' }
-          # EXPERIMENTAL: Apple Silicon clang builds of PHP 8.6 use the new
-          # tail-call VM (ZEND_VM_KIND_TAILCALL), under which z-engine's user
-          # opcode handlers corrupt VM state (lisachenko/z-engine#280) - every
-          # instrumented debuggee crashes. The leg keeps running for visibility
-          # and turns required again once the upstream issue is resolved.
-          - { os: macos-latest, php: '8.6', experimental: true }
+          - { os: macos-latest, php: '8.6' }
           - { os: macos-15-intel, php: '8.4' }
           - { os: macos-15-intel, php: '8.5' }
           - { os: macos-15-intel, php: '8.6' }
