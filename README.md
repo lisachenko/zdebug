@@ -7,7 +7,7 @@
 **ZDebug** is an Xdebug-compatible step debugger with **no C extension**. Your IDE attaches over DBGp — Xdebug's own protocol — while pure PHP code drives the Zend VM through FFI, courtesy of [z-engine](https://github.com/lisachenko/z-engine). Set breakpoints, step through code, inspect and edit the stack and variables in PhpStorm or VS Code, with nothing compiled and nothing installed but Composer packages.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/lisachenko/zdebug/ci.yml?branch=main&label=CI)](https://github.com/lisachenko/zdebug/actions/workflows/ci.yml)
-[![PHP Version](https://img.shields.io/badge/php-8.4%20%7C%208.5-8892BF.svg)](https://php.net/)
+[![PHP Version](https://img.shields.io/badge/php-8.4%20%7C%208.5%20%7C%208.6-8892BF.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PHPStan](https://img.shields.io/badge/PHPStan-level%20max-brightgreen.svg)](https://phpstan.org/)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#status)
@@ -161,13 +161,13 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 
 ## Requirements
 
-- PHP **8.4 or 8.5** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor
+- PHP **8.4, 8.5 or 8.6 (beta)** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor. (The PHP 8.6 tail-call VM bug that used to break engine hooks on Apple Silicon — [lisachenko/z-engine#280](https://github.com/lisachenko/z-engine/issues/280) — is fixed upstream by [php/php-src#24109](https://github.com/php/php-src/pull/24109))
 - `ffi.enable=1` and **`opcache.jit=off`** (the JIT rewrites the executor internals the hook plugs into)
 - Your app's code must load **after** ZDebug attaches — `auto_prepend_file` guarantees this
 
 ## Status
 
-The debugger is complete enough to use as one: an IDE attaches, sets line, conditional, call, return and exception breakpoints, steps over/into/out, walks the stack, reads and writes variables, evaluates expressions, fetches source and detaches — all of it proven end-to-end by a test suite that plays a fake IDE against a real spawned child process, on PHP 8.4 and 8.5 across linux-x64 and macOS (x64 + arm64).
+The debugger is complete enough to use as one: an IDE attaches, sets line, conditional, call, return and exception breakpoints, steps over/into/out, walks the stack, reads and writes variables, evaluates expressions, fetches source and detaches — all of it proven end-to-end by a test suite that plays a fake IDE against a real spawned child process, on PHP 8.4, 8.5 and the 8.6 beta across linux-x64 and macOS (x64 + arm64).
 
 What is left is a short list, and most of it is the engine's doing rather than unfinished plumbing:
 
