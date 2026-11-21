@@ -161,13 +161,13 @@ Precedence, lowest to highest: built-in defaults → Xdebug ini/env → `ZDEBUG_
 
 ## Requirements
 
-- PHP **8.4, 8.5 or 8.6 (beta)** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor. (The PHP 8.6 tail-call VM bug that used to break engine hooks on Apple Silicon — [lisachenko/z-engine#280](https://github.com/lisachenko/z-engine/issues/280) — is fixed upstream by [php/php-src#24109](https://github.com/php/php-src/pull/24109))
+- PHP **8.4, 8.5 or 8.6** (supported in parallel), **NTS**, **linux-x64 or macOS x64/arm64** (platforms z-engine ships definitions for); Composer resolves the matching z-engine line per minor. (The PHP 8.6 tail-call VM bug that used to break engine hooks on Apple Silicon — [lisachenko/z-engine#280](https://github.com/lisachenko/z-engine/issues/280) — is fixed upstream by [php/php-src#24109](https://github.com/php/php-src/pull/24109))
 - `ffi.enable=1` and **`opcache.jit=off`** (the JIT rewrites the executor internals the hook plugs into)
 - Your app's code must load **after** ZDebug attaches — `auto_prepend_file` guarantees this
 
 ## Status
 
-The debugger is complete enough to use as one: an IDE attaches, sets line, conditional, call, return and exception breakpoints, steps over/into/out, walks the stack, reads and writes variables, evaluates expressions, fetches source and detaches — all of it proven end-to-end by a test suite that plays a fake IDE against a real spawned child process, on PHP 8.4, 8.5 and the 8.6 beta across linux-x64 and macOS (x64 + arm64).
+The debugger is complete enough to use as one: an IDE attaches, sets line, conditional, call, return and exception breakpoints, steps over/into/out, walks the stack, reads and writes variables, evaluates expressions, fetches source and detaches — all of it proven end-to-end by a test suite that plays a fake IDE against a real spawned child process, on PHP 8.4, 8.5 and 8.6 across linux-x64 and macOS (x64 + arm64).
 
 What is left is a short list, and most of it is the engine's doing rather than unfinished plumbing:
 
