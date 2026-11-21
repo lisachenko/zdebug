@@ -15,8 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # PHP 8.6 is still in beta: setup-php installs the beta build and
-          # Composer resolves z-engine 8.6.x-dev (the master branch alias).
+          # Every leg is required, PHP 8.6 (GA) included. Composer resolves
+          # z-engine 8.6.x-dev (the master branch alias) on that minor.
           - { os: ubuntu-latest, php: '8.4' }
           - { os: ubuntu-latest, php: '8.5' }
           - { os: ubuntu-latest, php: '8.6' }
